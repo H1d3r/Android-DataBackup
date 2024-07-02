@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.application.common)
     alias(libs.plugins.application.hilt)
     alias(libs.plugins.application.compose)
+    alias(libs.plugins.refine)
 }
 
 android {
@@ -18,6 +19,12 @@ android {
         versionName = libs.versions.versionName.get()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // TODO Force enable the latest libsu
+    configurations.all {
+        resolutionStrategy.force("com.github.topjohnwu.libsu:core:PR182-SNAPSHOT")
+        resolutionStrategy.force("com.github.topjohnwu.libsu:service:PR182-SNAPSHOT")
     }
 
     lint {
@@ -79,7 +86,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:datastore"))
     implementation(project(":core:util"))
-    implementation(project(":core:hiddenapi"))
+    compileOnly(project(":core:hiddenapi"))
     implementation(project(":core:rootservice"))
 
     // Feature
@@ -91,15 +98,12 @@ dependencies {
     "alphaImplementation"(project(":feature:flavor:foss"))
     implementation(project(":feature:main:dashboard"))
     implementation(project(":feature:main:restore"))
-    implementation(project(":feature:main:home"))
     implementation(project(":feature:main:cloud"))
     implementation(project(":feature:main:settings"))
+    implementation(project(":feature:main:configurations"))
     implementation(project(":feature:main:packages"))
     implementation(project(":feature:main:medium"))
     implementation(project(":feature:main:directory"))
-    implementation(project(":feature:main:log"))
-    implementation(project(":feature:main:tree"))
-    implementation(project(":feature:main:task"))
 
     // Splash Screen
     implementation(libs.androidx.core.splashscreen)

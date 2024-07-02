@@ -19,15 +19,20 @@ import com.hierynomus.smbj.share.Share
 import com.rapid7.client.dcerpc.mssrvs.ServerService
 import com.rapid7.client.dcerpc.transport.SMBTransportFactories
 import com.xayah.core.common.util.toPathString
+import com.xayah.core.model.SmbAuthMode
 import com.xayah.core.model.SmbVersion
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.SMBExtra
 import com.xayah.core.network.R
+import com.xayah.core.network.io.CountingInputStreamImpl
+import com.xayah.core.network.io.CountingOutputStreamImpl
 import com.xayah.core.network.util.getExtraEntity
 import com.xayah.core.rootservice.parcelables.PathParcelable
 import com.xayah.core.util.GsonUtil
 import com.xayah.core.util.LogUtil
+import com.xayah.core.util.SymbolUtil
 import com.xayah.core.util.toPathList
+import com.xayah.core.util.withLog
 import com.xayah.core.util.withMainContext
 import com.xayah.libpickyou.parcelables.DirChildrenParcelable
 import com.xayah.libpickyou.parcelables.FileParcelable
@@ -98,15 +103,21 @@ class SMBClientImpl(private val entity: CloudEntity, private val extra: SMBExtra
         client = SMBClient(config).apply {
             connect(entity.host, extra.port).also { connection ->
                 log { "Dialect: ${connection.connectionContext.negotiatedProtocol.dialect.name}" }
-                AuthenticationContext(entity.user, entity.pass.toCharArray(), extra.domain).also { authentication ->
-                    session = connection.authenticate(authentication)
-                    if (extra.share.isNotEmpty()) setShare(extra.share)
-                    withSession { _ ->
-                        val transport = SMBTransportFactories.SRVSVC.getTransport(session)
-                        val serverService = ServerService(transport)
-                        val shares = serverService.shares1
-                        availableShares = shares.filter { (it.type and STYPE_SPECIAL == STYPE_SPECIAL).not() }.map { it.netName }
-                    }
+                log { "Mode: ${extra.mode}" }
+
+                val authentication = when (extra.mode) {
+                    SmbAuthMode.PASSWORD -> AuthenticationContext(entity.user, entity.pass.toCharArray(), extra.domain)
+                    SmbAuthMode.GUEST -> AuthenticationContext.guest()
+                    SmbAuthMode.ANONYMOUS -> AuthenticationContext.anonymous()
+                }
+
+                session = connection.authenticate(authentication)
+                if (extra.share.isNotEmpty()) setShare(extra.share)
+                withSession { _ ->
+                    val transport = SMBTransportFactories.SRVSVC.getTransport(session)
+                    val serverService = ServerService(transport)
+                    val shares = serverService.shares1
+                    availableShares = shares.filter { (it.type and STYPE_SPECIAL == STYPE_SPECIAL).not() }.map { it.netName }
                 }
             }
         }
@@ -120,7 +131,7 @@ class SMBClientImpl(private val entity: CloudEntity, private val extra: SMBExtra
             withClient { client ->
                 client.close()
             }
-        }
+        }.withLog()
         share = null
         client = null
     }
@@ -158,65 +169,64 @@ class SMBClientImpl(private val entity: CloudEntity, private val extra: SMBExtra
     private fun openDirectory(src: String): Directory = withDiskShare { diskShare ->
         diskShare.openDirectory(
             src,
-            setOf(
-                AccessMask.FILE_WRITE_DATA,
-                AccessMask.FILE_WRITE_ATTRIBUTES,
-                AccessMask.FILE_WRITE_EA,
-            ),
-            setOf(FileAttributes.FILE_ATTRIBUTE_NORMAL),
+            setOf(AccessMask.GENERIC_ALL),
+            null,
             SMB2ShareAccess.ALL,
-            SMB2CreateDisposition.FILE_OVERWRITE_IF,
-            setOf(SMB2CreateOptions.FILE_RANDOM_ACCESS)
+            SMB2CreateDisposition.FILE_OPEN,
+            null
         )
     }
 
     private fun openFile(src: String): com.hierynomus.smbj.share.File = withDiskShare { diskShare ->
         diskShare.openFile(
             src,
-            setOf(
-                AccessMask.FILE_WRITE_DATA,
-                AccessMask.FILE_WRITE_ATTRIBUTES,
-                AccessMask.FILE_WRITE_EA,
-            ),
+            setOf(AccessMask.GENERIC_ALL),
             setOf(FileAttributes.FILE_ATTRIBUTE_NORMAL),
             SMB2ShareAccess.ALL,
-            SMB2CreateDisposition.FILE_OVERWRITE_IF,
+            SMB2CreateDisposition.FILE_OPEN_IF,
             setOf(SMB2CreateOptions.FILE_RANDOM_ACCESS)
         )
     }
 
-    override fun renameTo(src: String, dst: String) = withDiskShare { diskShare ->
+    override fun renameTo(src: String, dst: String): Unit = withDiskShare { diskShare ->
         log { "renameTo: from $src to $dst" }
         if (diskShare.folderExists(src)) {
             val dir = openDirectory(src)
-            dir.rename(dst, false)
+            dir.rename(dst.replace("/", SymbolUtil.BACKSLASH.toString()), false)
         } else if (diskShare.fileExists(src)) {
             val file = openFile(src)
             file.rename(dst, false)
         }
     }
 
-    override fun upload(src: String, dst: String) = run {
+    override fun upload(src: String, dst: String, onUploading: (read: Long, total: Long) -> Unit) = run {
         val name = Paths.get(src).fileName
         val dstPath = "$dst/$name"
         log { "upload: $src to $dstPath" }
         val dstFile = openFile(dstPath)
         val srcFile = File(src)
+        val srcFileSize = srcFile.length()
         val srcInputStream = FileInputStream(srcFile)
-        dstFile.write(InputStreamByteChunkProvider(srcInputStream))
+        val countingStream = CountingInputStreamImpl(srcInputStream, srcFileSize) { read, total -> onUploading(read, total) }
+        dstFile.write(InputStreamByteChunkProvider(countingStream))
         srcInputStream.close()
+        countingStream.close()
         dstFile.close()
+        onUploading(countingStream.byteCount, countingStream.byteCount)
     }
 
-    override fun download(src: String, dst: String) = run {
+    override fun download(src: String, dst: String, onDownloading: (written: Long, total: Long) -> Unit) = run {
         val name = Paths.get(src).fileName
         val dstPath = "$dst/$name"
         log { "download: $src to $dstPath" }
         val dstOutputStream = File(dstPath).outputStream()
         val srcFile = openFile(src)
-        srcFile.read(dstOutputStream)
+        val countingStream = CountingOutputStreamImpl(dstOutputStream, -1) { written, total -> onDownloading(written, total) }
+        srcFile.read(countingStream)
         srcFile.close()
         dstOutputStream.close()
+        countingStream.close()
+        onDownloading(countingStream.byteCount, countingStream.byteCount)
     }
 
     override fun deleteFile(src: String) = withDiskShare { diskShare ->

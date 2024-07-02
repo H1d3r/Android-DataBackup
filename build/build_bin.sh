@@ -13,19 +13,20 @@ ZSTD_DEV=false
 
 NDK_VERSION=r25c
 
-BIN_VERSION=1.7
+BIN_VERSION=2.0
 ZLIB_VERSION=1.3.1             # https://github.com/madler/zlib/releases
-XZ_VERSION=5.4.6               # https://github.com/tukaani-project/xz/releases
+XZ_VERSION=5.6.2               # https://github.com/tukaani-project/xz/releases
 LZ4_VERSION=1.9.4              # https://github.com/lz4/lz4/releases
-ZSTD_VERSION=1.5.5             # https://github.com/facebook/zstd/releases
+ZSTD_VERSION=1.5.6             # https://github.com/facebook/zstd/releases
 TAR_VERSION=1.35               # https://ftp.gnu.org/gnu/tar/?C=M;O=D
 COREUTLS_VERSION=9.4           # https://ftp.gnu.org/gnu/coreutils/?C=M;O=D
 TREE_VERSION=2.1.1             # https://gitlab.com/OldManProgrammer/unix-tree
+AWK_VERSION=20240422           # https://github.com/onetrueawk/awk/tags
 ##################################################
 # Functions
 set_up_utils() {
     sudo apt-get update
-    sudo apt-get install wget zip unzip bzip2 -q make gcc g++ clang meson golang-go cmake -y
+    sudo apt-get install wget zip unzip bzip2 -q make gcc g++ clang meson golang-go cmake bison strip-nondeterminism -y
     # Create build directory
     mkdir build_bin
     cd build_bin
@@ -74,8 +75,9 @@ set_up_environment() {
     export LD=$TOOLCHAIN/bin/ld
     export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
     export STRIP=$TOOLCHAIN/bin/llvm-strip
-    export BUILD_CFLAGS="-O3 -ffunction-sections -fdata-sections"
-    export BUILD_LDFLAGS="-s -flto -Wl,--gc-sections"
+    export FILE_PREFIX_MAP=/src
+    export BUILD_CFLAGS="-O3 -ffunction-sections -fdata-sections -ffile-prefix-map=$LOCAL_PATH=$FILE_PREFIX_MAP"
+    export BUILD_LDFLAGS="-s -flto -Wl,--gc-sections -Wl,--build-id=none -Wl,--hash-style=both"
     export BUILD_LDFLAGS_STATIC="-static $BUILD_LDFLAGS"
      
 }
@@ -286,18 +288,49 @@ build_tree() {
     rm -rf tree-$TREE_VERSION
 }
 
+build_awk() {
+    if [ ! -f $LOCAL_PATH/$AWK_VERSION.tar.gz ]; then
+        wget -nv https://github.com/onetrueawk/awk/archive/refs/tags/$AWK_VERSION.tar.gz
+    fi
+    if [ -d $LOCAL_PATH/awk-$AWK_VERSION ]; then
+        rm -rf awk-$AWK_VERSION
+    fi
+    tar xf $AWK_VERSION.tar.gz
+    cd awk-$AWK_VERSION
+
+    make \
+        AR=$AR \
+        CC=$CC \
+        AS=$AS \
+        CXX=$CXX \
+        LD=$LD \
+        RANLIB=$RANLIB \
+        STRIP=$STRIP \
+        CFLAGS="$BUILD_CFLAGS" \
+        CXXFLAGS="$BUILD_CFLAGS" \
+        LDFLAGS="$BUILD_LDFLAGS_STATIC" \
+        -j8
+    mkdir -p $LOCAL_PATH/awk/bin
+    mv a.out $LOCAL_PATH/awk/bin/awk
+    $STRIP $LOCAL_PATH/awk/bin/awk
+    cd ..
+    rm -rf awk-$AWK_VERSION
+}
+
 build_built_in() {
     build_zstd
     build_tar
     build_coreutls
     build_tree
+    build_awk
 }
 
 package_built_in() {
     # Built-in modules
     mkdir -p built_in/$TARGET_ARCH
     echo "$BIN_VERSION" > built_in/version
-    zip -pj built_in/$TARGET_ARCH/bin coreutls/bin/df coreutls/bin/sha1sum tar/bin/tar zstd/bin/zstd built_in/version tree/tree
+    zip -pj built_in/$TARGET_ARCH/bin coreutls/bin/df coreutls/bin/sha1sum tar/bin/tar zstd/bin/zstd built_in/version tree/tree awk/bin/awk
+    strip-nondeterminism built_in/$TARGET_ARCH/bin.zip
 }
 
 build() {
@@ -343,5 +376,5 @@ for abi in ${abis[@]}; do
     build $1
     package $1
     # Clean build files
-    rm -rf NDK coreutls tar zstd tree
+    rm -rf NDK coreutls tar zstd tree awk
 done

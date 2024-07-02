@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,6 +25,7 @@ import com.xayah.core.ui.material3.AlertDialog
 import com.xayah.core.ui.material3.Surface
 import com.xayah.core.ui.material3.toColor
 import com.xayah.core.ui.material3.tokens.ColorSchemeKeyTokens
+import com.xayah.core.ui.model.DialogCheckBoxItem
 import com.xayah.core.ui.model.DialogRadioItem
 import com.xayah.core.ui.model.ImageVectorToken
 import com.xayah.core.ui.model.StringResourceToken
@@ -109,9 +111,15 @@ suspend fun DialogState.confirm(title: StringResourceToken, text: StringResource
 ).first
 
 @Composable
-fun RadioItem(enabled: Boolean = true, selected: Boolean, title: StringResourceToken, desc: StringResourceToken, onClick: () -> Unit) {
+fun RadioItem(enabled: Boolean = true, selected: Boolean, title: StringResourceToken, desc: StringResourceToken?, onClick: () -> Unit) {
     Surface(enabled = true, modifier = Modifier.fillMaxWidth(), onClick = onClick, color = ColorSchemeKeyTokens.Transparent.toColor()) {
-        Row(modifier = Modifier.paddingVertical(SizeTokens.Level8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level8)) {
+        Row(
+            modifier = Modifier
+                .paddingVertical(SizeTokens.Level8)
+                .paddingStart(SizeTokens.Level12),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level8)
+        ) {
             RadioButton(
                 selected = selected,
                 onClick = onClick,
@@ -119,8 +127,29 @@ fun RadioItem(enabled: Boolean = true, selected: Boolean, title: StringResourceT
             )
             Column {
                 BodyLargeText(text = title.value, color = ColorSchemeKeyTokens.OnSurface.toColor(), fontWeight = FontWeight.Normal, enabled = enabled)
-                BodyMediumText(text = desc.value, color = ColorSchemeKeyTokens.OnSurfaceVariant.toColor(), fontWeight = FontWeight.Normal, enabled = enabled)
+                if (desc != null)
+                    BodyMediumText(text = desc.value, color = ColorSchemeKeyTokens.OnSurfaceVariant.toColor(), fontWeight = FontWeight.Normal, enabled = enabled)
             }
+        }
+    }
+}
+
+@Composable
+fun CheckBoxItem(enabled: Boolean = true, checked: Boolean, title: StringResourceToken, desc: StringResourceToken?, onClick: () -> Unit) {
+    Surface(enabled = true, modifier = Modifier.fillMaxWidth(), onClick = onClick, color = ColorSchemeKeyTokens.Transparent.toColor()) {
+        Row(
+            modifier = Modifier
+                .paddingVertical(SizeTokens.Level8)
+                .paddingHorizontal(SizeTokens.Level24),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level8)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                BodyLargeText(text = title.value, color = ColorSchemeKeyTokens.OnSurface.toColor(), fontWeight = FontWeight.Normal, enabled = enabled)
+                if (desc != null)
+                    BodyMediumText(text = desc.value, color = ColorSchemeKeyTokens.OnSurfaceVariant.toColor(), fontWeight = FontWeight.Normal, enabled = enabled)
+            }
+            CheckIconButton(enabled = enabled, checked = checked, onCheckedChange = { onClick() })
         }
     }
 }
@@ -143,4 +172,58 @@ suspend inline fun <reified T> DialogState.select(title: StringResourceToken, de
             }
         }
     }
-).second
+)
+
+suspend inline fun <reified T> DialogState.select(title: StringResourceToken, def: List<Boolean>, items: List<DialogCheckBoxItem<T>>) = open(
+    initialState = def,
+    title = title,
+    icon = null,
+    contentHorizontalPadding = false,
+    block = { uiState ->
+        var checkedList by remember { mutableStateOf(def) }
+        LazyColumn {
+            items(items.size) {
+                CheckBoxItem(checked = checkedList[it], title = items[it].title, desc = items[it].desc) {
+                    val tmp = checkedList.toMutableList()
+                    tmp[it] = tmp[it].not()
+                    checkedList = tmp.toList()
+                    uiState.value = checkedList
+                }
+                if (it != items.size - 1)
+                    Divider()
+            }
+        }
+    }
+)
+
+suspend fun DialogState.edit(
+    title: StringResourceToken,
+    defValue: String = "",
+    label: StringResourceToken? = null,
+    desc: StringResourceToken? = null,
+) = open(
+    initialState = defValue,
+    title = title,
+    icon = null,
+    block = { uiState ->
+        Column {
+            OutlinedTextField(
+                modifier = Modifier.paddingTop(SizeTokens.Level8),
+                value = uiState.value,
+                onValueChange = {
+                    uiState.value = it
+                },
+                label = if (label == null) {
+                    null
+                } else {
+                    { Text(text = label.value) }
+                },
+                supportingText = if (desc == null) {
+                    null
+                } else {
+                    { Text(text = desc.value) }
+                },
+            )
+        }
+    }
+)

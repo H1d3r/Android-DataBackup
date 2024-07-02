@@ -5,13 +5,19 @@ import android.app.Service
 import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
+import android.view.SurfaceControlHidden
 import com.xayah.core.data.repository.PackageRepository
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.database.dao.TaskDao
-import com.xayah.core.datastore.readRestoreFilterFlagIndex
+import com.xayah.core.datastore.readAutoScreenOff
+import com.xayah.core.datastore.readResetRestoreList
+import com.xayah.core.datastore.readRestoreUser
+import com.xayah.core.datastore.readScreenOffTimeout
 import com.xayah.core.datastore.readSelectionType
 import com.xayah.core.datastore.saveLastRestoreTime
+import com.xayah.core.datastore.saveScreenOffCountDown
+import com.xayah.core.datastore.saveScreenOffTimeout
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.OperationState
@@ -31,6 +37,7 @@ import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.command.BaseUtil
 import com.xayah.core.util.command.PreparationUtil
+import com.xayah.core.util.localBackupSaveDir
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
@@ -81,10 +88,15 @@ internal abstract class RestoreService : Service() {
     private val pkgEntities: MutableList<TaskDetailPackageEntity> = mutableListOf()
 
     private var isInitialized: Boolean = false
+    internal var restoreUser = -1
 
     @SuppressLint("StringFormatInvalid")
-    suspend fun initialize(): Long {
+    suspend fun initialize(cloudName: String, cloudRemote: String): Long {
         mutex.withLock {
+            if (rootService.getScreenOffTimeout() != Int.MAX_VALUE) {
+                context.saveScreenOffTimeout(rootService.getScreenOffTimeout())
+            }
+            restoreUser = context.readRestoreUser().first()
             if (isInitialized.not()) {
                 taskEntity.also {
                     it.id = taskDao.upsert(it)
@@ -106,7 +118,12 @@ internal abstract class RestoreService : Service() {
                     id = taskDao.upsert(this)
                 }
 
-                val packages = packageDao.queryActivated(OpType.RESTORE).filter(packageRepository.getFlagPredicateNew(index = context.readRestoreFilterFlagIndex().first()))
+                val packages = packageRepository.filterRestore(
+                    if (cloudName.isEmpty())
+                        packageRepository.queryActivated(OpType.RESTORE, "", context.localBackupSaveDir())
+                    else
+                        packageRepository.queryActivated(OpType.RESTORE, cloudName, cloudRemote)
+                )
                 packages.forEach { pkg ->
                     pkgEntities.add(TaskDetailPackageEntity(
                         id = 0,
@@ -130,6 +147,9 @@ internal abstract class RestoreService : Service() {
 
     suspend fun preprocessing() = withIOContext {
         mutex.withLock {
+            if (context.readAutoScreenOff().first()) {
+                context.saveScreenOffCountDown(3)
+            }
             preSetUpInstEnvEntity.also {
                 it.state = OperationState.PROCESSING
                 taskDao.upsert(it)
@@ -140,10 +160,17 @@ internal abstract class RestoreService : Service() {
             log { "Preprocessing is starting." }
 
             log { "Trying to enable adb install permissions." }
-            PreparationUtil.setInstallEnv()
+            PreparationUtil.setInstallEnv().apply {
+                preSetUpInstEnvEntity.state = if (isSuccess) OperationState.DONE else OperationState.ERROR
+                if (isSuccess.not()) preSetUpInstEnvEntity.log = outString
+            }
 
-            preSetUpInstEnvEntity.also {
-                it.state = OperationState.DONE
+            runCatchingOnService { createTargetDirs() }
+
+            taskDao.upsert(preSetUpInstEnvEntity)
+
+            taskEntity.also {
+                it.processingIndex++
                 taskDao.upsert(it)
             }
         }
@@ -164,7 +191,6 @@ internal abstract class RestoreService : Service() {
             log { "Processing is starting." }
             val selectionType = context.readSelectionType().first()
             log { "Selection: $selectionType." }
-            runCatchingOnService { createTargetDirs() }
 
             // createTargetDirs() before readStatFs().
             taskEntity.also {
@@ -193,9 +219,14 @@ internal abstract class RestoreService : Service() {
 
                 // Kill the package.
                 log { "Trying to kill ${pkg.packageEntity.packageName}." }
-                BaseUtil.killPackage(userId = pkg.packageEntity.userId, packageName = pkg.packageEntity.packageName)
+                BaseUtil.killPackage(context = context, userId = pkg.packageEntity.userId, packageName = pkg.packageEntity.packageName)
 
                 runCatchingOnService { restorePackage(pkg) }
+
+                taskEntity.also {
+                    it.processingIndex++
+                    taskDao.upsert(it)
+                }
             }
         }
     }
@@ -223,7 +254,7 @@ internal abstract class RestoreService : Service() {
                 taskDao.upsert(it)
             }
 
-            packageDao.clearActivated()
+            if (context.readResetRestoreList().first()) packageDao.clearActivated()
             endTimestamp = DateUtil.getTimestamp()
             taskEntity.also {
                 it.endTimestamp = endTimestamp
@@ -239,6 +270,14 @@ internal abstract class RestoreService : Service() {
                 "${time}, ${taskEntity.successCount} ${context.getString(R.string.succeed)}, ${taskEntity.failureCount} ${context.getString(R.string.failed)}",
                 ongoing = false
             )
+
+            taskEntity.also {
+                it.processingIndex++
+                taskDao.upsert(it)
+            }
+
+            rootService.setScreenOffTimeout(context.readScreenOffTimeout().first())
+            rootService.setDisplayPowerMode(SurfaceControlHidden.POWER_MODE_NORMAL)
         }
     }
 }

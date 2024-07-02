@@ -12,6 +12,7 @@ import com.xayah.core.model.OperationState
 import com.xayah.core.model.SelectionType
 import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.TaskDetailPackageEntity
+import com.xayah.core.model.util.formatSize
 import com.xayah.core.network.client.CloudClient
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.LogUtil
@@ -23,8 +24,12 @@ import com.xayah.core.util.command.SELinux
 import com.xayah.core.util.command.Tar
 import com.xayah.core.util.model.ShellResult
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.coroutines.coroutineContext
 
 class PackagesRestoreUtil @Inject constructor(
     @ApplicationContext val context: Context,
@@ -38,7 +43,7 @@ class PackagesRestoreUtil @Inject constructor(
         private val TAG = this::class.java.simpleName
     }
 
-    internal fun log(onMsg: () -> String): String = run {
+    private fun log(onMsg: () -> String): String = run {
         val msg = onMsg()
         LogUtil.log { TAG to msg }
         msg
@@ -75,6 +80,7 @@ class PackagesRestoreUtil @Inject constructor(
         state: OperationState? = null,
         bytes: Long? = null,
         log: String? = null,
+        content: String? = null,
     ) = run {
         when (dataType) {
             DataType.PACKAGE_APK -> {
@@ -82,6 +88,7 @@ class PackagesRestoreUtil @Inject constructor(
                     if (state != null) it.state = state
                     if (bytes != null) it.bytes = bytes
                     if (log != null) it.log = log
+                    if (content != null) it.content = content
                 }
             }
 
@@ -90,6 +97,7 @@ class PackagesRestoreUtil @Inject constructor(
                     if (state != null) it.state = state
                     if (bytes != null) it.bytes = bytes
                     if (log != null) it.log = log
+                    if (content != null) it.content = content
                 }
             }
 
@@ -98,6 +106,7 @@ class PackagesRestoreUtil @Inject constructor(
                     if (state != null) it.state = state
                     if (bytes != null) it.bytes = bytes
                     if (log != null) it.log = log
+                    if (content != null) it.content = content
                 }
             }
 
@@ -106,6 +115,7 @@ class PackagesRestoreUtil @Inject constructor(
                     if (state != null) it.state = state
                     if (bytes != null) it.bytes = bytes
                     if (log != null) it.log = log
+                    if (content != null) it.content = content
                 }
             }
 
@@ -114,6 +124,7 @@ class PackagesRestoreUtil @Inject constructor(
                     if (state != null) it.state = state
                     if (bytes != null) it.bytes = bytes
                     if (log != null) it.log = log
+                    if (content != null) it.content = content
                 }
             }
 
@@ -122,6 +133,7 @@ class PackagesRestoreUtil @Inject constructor(
                     if (state != null) it.state = state
                     if (bytes != null) it.bytes = bytes
                     if (log != null) it.log = log
+                    if (content != null) it.content = content
                 }
             }
 
@@ -142,12 +154,11 @@ class PackagesRestoreUtil @Inject constructor(
         else -> ""
     }
 
-    suspend fun restoreApk(p: PackageEntity, t: TaskDetailPackageEntity, srcDir: String): ShellResult = run {
+    suspend fun restoreApk(userId: Int, p: PackageEntity, t: TaskDetailPackageEntity, srcDir: String): ShellResult = run {
         log { "Restoring apk..." }
 
         val dataType = DataType.PACKAGE_APK
         val packageName = p.packageName
-        val userId = p.userId
         val ct = p.indexInfo.compressionType
         val src = packageRepository.getArchiveDst(dstDir = srcDir, dataType = dataType, ct = ct)
         var isSuccess: Boolean
@@ -234,11 +245,10 @@ class PackagesRestoreUtil @Inject constructor(
     /**
      * Package data: USER, USER_DE, DATA, OBB, MEDIA
      */
-    suspend fun restoreData(p: PackageEntity, t: TaskDetailPackageEntity, dataType: DataType, srcDir: String): ShellResult = run {
+    suspend fun restoreData(userId: Int, p: PackageEntity, t: TaskDetailPackageEntity, dataType: DataType, srcDir: String): ShellResult = run {
         log { "Restoring ${dataType.type}..." }
 
         val packageName = p.packageName
-        val userId = p.userId
         val ct = p.indexInfo.compressionType
         val src = packageRepository.getArchiveDst(dstDir = srcDir, dataType = dataType, ct = ct)
         val dstDir = packageRepository.getDataSrcDir(dataType, userId)
@@ -342,24 +352,10 @@ class PackagesRestoreUtil @Inject constructor(
         ShellResult(code = if (isSuccess) 0 else -1, input = listOf(), out = out)
     }
 
-    suspend fun updatePackage(p: PackageEntity) = run {
-        log { "Update package..." }
-        val packageName = p.packageName
-
-        val userId = p.userId
-        val packageInfo = rootService.getPackageInfoAsUser(packageName, 0, userId)
-        packageInfo?.apply {
-            val uid = applicationInfo.uid
-            log { "New uid: $uid" }
-            p.extraInfo.uid = uid
-        }
-    }
-
-    suspend fun restorePermissions(p: PackageEntity) = run {
+    suspend fun restorePermissions(userId: Int, p: PackageEntity) = run {
         log { "Restoring permissions..." }
 
         val packageName = p.packageName
-        val userId = p.userId
         val user = rootService.getUserHandle(userId)
         val permissions = p.extraInfo.permissions
 
@@ -380,12 +376,11 @@ class PackagesRestoreUtil @Inject constructor(
         }
     }
 
-    suspend fun restoreSsaid(p: PackageEntity) = run {
+    suspend fun restoreSsaid(userId: Int, p: PackageEntity) = run {
         log { "Restoring ssaid..." }
 
         val packageName = p.packageName
         val uid = p.extraInfo.uid
-        val userId = p.userId
         val ssaid = p.extraInfo.ssaid
 
         if (p.ssaidSelected) {
@@ -400,7 +395,15 @@ class PackagesRestoreUtil @Inject constructor(
         }
     }
 
-    suspend fun download(client: CloudClient, p: PackageEntity, t: TaskDetailPackageEntity, dataType: DataType, srcDir: String, dstDir: String, onDownloaded: suspend (path: String) -> Unit) = run {
+    suspend fun download(
+        client: CloudClient,
+        p: PackageEntity,
+        t: TaskDetailPackageEntity,
+        dataType: DataType,
+        srcDir: String,
+        dstDir: String,
+        onDownloaded: suspend (p: PackageEntity, t: TaskDetailPackageEntity, dataType: DataType, path: String) -> Unit
+    ) = run {
         val ct = p.indexInfo.compressionType
         val src = packageRepository.getArchiveDst(dstDir = srcDir, dataType = dataType, ct = ct)
 
@@ -410,14 +413,40 @@ class PackagesRestoreUtil @Inject constructor(
             t.updateInfo(dataType = dataType, state = OperationState.DOWNLOADING)
 
             if (client.exists(src)) {
-                cloudRepository.download(client = client, src = src, dstDir = dstDir, onDownloaded = onDownloaded).apply {
-                    t.updateInfo(dataType = dataType, state = if (isSuccess) OperationState.DONE else OperationState.ERROR, log = t.getLog(dataType) + "\n${outString}")
+                var flag = true
+                var progress = 0.0
+                with(CoroutineScope(coroutineContext)) {
+                    launch {
+                        while (flag) {
+                            t.updateInfo(dataType = dataType, content = progress.formatSize())
+                            delay(500)
+                        }
+                    }
+                }
+
+                cloudRepository.download(client = client,
+                    src = src,
+                    dstDir = dstDir,
+                    onDownloading = { written, _ -> progress = written.toDouble() },
+                    onDownloaded = {
+                        onDownloaded(p, t, dataType, dstDir)
+                    }
+                ).apply {
+                    flag = false
+                    t.updateInfo(
+                        dataType = dataType,
+                        log = (t.getLog(dataType) + "\n${outString}").trim(),
+                        content = progress.formatSize()
+                    )
+                    if (isSuccess.not()) {
+                        t.updateInfo(dataType = dataType, state = OperationState.ERROR)
+                    }
                 }
             } else {
                 if (dataType == DataType.PACKAGE_USER || dataType == DataType.PACKAGE_APK) {
-                    t.updateInfo(dataType = dataType, state = OperationState.ERROR, log = log { "Not exist: $src" })
+                    t.updateInfo(dataType = dataType, state = OperationState.ERROR, log = log { "Failed to connect to cloud or file not exist: $src" })
                 } else {
-                    t.updateInfo(dataType = dataType, state = OperationState.SKIP, log = log { "Not exist and skip: $src" })
+                    t.updateInfo(dataType = dataType, state = OperationState.SKIP, log = log { "Failed to connect to cloud or file not exist, skip: $src" })
                 }
             }
         }

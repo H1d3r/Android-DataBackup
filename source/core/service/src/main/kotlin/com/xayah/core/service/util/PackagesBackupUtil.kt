@@ -26,9 +26,13 @@ import com.xayah.core.util.command.Tar
 import com.xayah.core.util.filesDir
 import com.xayah.core.util.model.ShellResult
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
+import kotlin.coroutines.coroutineContext
 
 class PackagesBackupUtil @Inject constructor(
     @ApplicationContext val context: Context,
@@ -42,7 +46,7 @@ class PackagesBackupUtil @Inject constructor(
         private val TAG = this::class.java.simpleName
     }
 
-    internal fun log(onMsg: () -> String): String = run {
+    private fun log(onMsg: () -> String): String = run {
         val msg = onMsg()
         LogUtil.log { TAG to msg }
         msg
@@ -97,11 +101,22 @@ class PackagesBackupUtil @Inject constructor(
         else -> Unit
     }
 
+    private fun PackageEntity.setDisplayBytes(dataType: DataType, sizeBytes: Long) = when (dataType) {
+        DataType.PACKAGE_APK -> displayStats.apkBytes = sizeBytes
+        DataType.PACKAGE_USER -> displayStats.userBytes = sizeBytes
+        DataType.PACKAGE_USER_DE -> displayStats.userDeBytes = sizeBytes
+        DataType.PACKAGE_DATA -> displayStats.dataBytes = sizeBytes
+        DataType.PACKAGE_OBB -> displayStats.obbBytes = sizeBytes
+        DataType.PACKAGE_MEDIA -> displayStats.mediaBytes = sizeBytes
+        else -> Unit
+    }
+
     private suspend fun TaskDetailPackageEntity.updateInfo(
         dataType: DataType,
         state: OperationState? = null,
         bytes: Long? = null,
         log: String? = null,
+        content: String? = null,
     ) = run {
         when (dataType) {
             DataType.PACKAGE_APK -> {
@@ -109,6 +124,7 @@ class PackagesBackupUtil @Inject constructor(
                     if (state != null) it.state = state
                     if (bytes != null) it.bytes = bytes
                     if (log != null) it.log = log
+                    if (content != null) it.content = content
                 }
             }
 
@@ -117,6 +133,7 @@ class PackagesBackupUtil @Inject constructor(
                     if (state != null) it.state = state
                     if (bytes != null) it.bytes = bytes
                     if (log != null) it.log = log
+                    if (content != null) it.content = content
                 }
             }
 
@@ -125,6 +142,7 @@ class PackagesBackupUtil @Inject constructor(
                     if (state != null) it.state = state
                     if (bytes != null) it.bytes = bytes
                     if (log != null) it.log = log
+                    if (content != null) it.content = content
                 }
             }
 
@@ -133,6 +151,7 @@ class PackagesBackupUtil @Inject constructor(
                     if (state != null) it.state = state
                     if (bytes != null) it.bytes = bytes
                     if (log != null) it.log = log
+                    if (content != null) it.content = content
                 }
             }
 
@@ -141,6 +160,7 @@ class PackagesBackupUtil @Inject constructor(
                     if (state != null) it.state = state
                     if (bytes != null) it.bytes = bytes
                     if (log != null) it.log = log
+                    if (content != null) it.content = content
                 }
             }
 
@@ -149,6 +169,7 @@ class PackagesBackupUtil @Inject constructor(
                     if (state != null) it.state = state
                     if (bytes != null) it.bytes = bytes
                     if (log != null) it.log = log
+                    if (content != null) it.content = content
                 }
             }
 
@@ -198,7 +219,7 @@ class PackagesBackupUtil @Inject constructor(
         ShellResult(code = if (isSuccess) 0 else -1, input = listOf(), out = out)
     }
 
-    suspend fun getPackageSourceDir(packageName: String, userId: Int) = rootService.getPackageSourceDir(packageName, userId).let { list ->
+    private suspend fun getPackageSourceDir(packageName: String, userId: Int) = rootService.getPackageSourceDir(packageName, userId).let { list ->
         if (list.isNotEmpty()) PathUtil.getParentPath(list[0]) else ""
     }
 
@@ -234,7 +255,10 @@ class PackagesBackupUtil @Inject constructor(
                     commonBackupUtil.testArchive(src = dst, ct = ct).also { result ->
                         isSuccess = isSuccess and result.isSuccess
                         out.addAll(result.out)
-                        if (result.isSuccess) p.setDataBytes(dataType, sizeBytes)
+                        if (result.isSuccess) {
+                            p.setDataBytes(dataType, sizeBytes)
+                            p.setDisplayBytes(dataType, rootService.calculateSize(dst))
+                        }
                     }
                 }
             } else {
@@ -326,7 +350,10 @@ class PackagesBackupUtil @Inject constructor(
                 commonBackupUtil.testArchive(src = dst, ct = ct).also { result ->
                     isSuccess = isSuccess and result.isSuccess
                     out.addAll(result.out)
-                    if (result.isSuccess) p.setDataBytes(dataType, sizeBytes)
+                    if (result.isSuccess) {
+                        p.setDataBytes(dataType, sizeBytes)
+                        p.setDisplayBytes(dataType, rootService.calculateSize(dst))
+                    }
                 }
             }
 
@@ -370,8 +397,20 @@ class PackagesBackupUtil @Inject constructor(
         val src = packageRepository.getArchiveDst(dstDir = srcDir, dataType = dataType, ct = ct)
         t.updateInfo(dataType = dataType, state = OperationState.UPLOADING)
 
-        cloudRepository.upload(client = client, src = src, dstDir = dstDir).apply {
-            t.updateInfo(dataType = dataType, state = if (isSuccess) OperationState.DONE else OperationState.ERROR, log = t.getLog(dataType) + "\n${outString}")
+        var flag = true
+        var progress = 0f
+        with(CoroutineScope(coroutineContext)) {
+            launch {
+                while (flag) {
+                    t.updateInfo(dataType = dataType, content = "${(progress * 100).toInt()}%")
+                    delay(500)
+                }
+            }
+        }
+
+        cloudRepository.upload(client = client, src = src, dstDir = dstDir, onUploading = { read, total -> progress = read.toFloat() / total }).apply {
+            flag = false
+            t.updateInfo(dataType = dataType, state = if (isSuccess) OperationState.DONE else OperationState.ERROR, log = t.getLog(dataType) + "\n${outString}", content = "100%")
         }
     }
 }

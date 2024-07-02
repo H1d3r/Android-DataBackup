@@ -48,8 +48,6 @@ import com.xayah.core.ui.material3.window.PopupProperties
 import com.xayah.core.ui.model.ActionMenuItem
 import com.xayah.core.ui.model.ImageVectorToken
 import com.xayah.core.ui.model.StringResourceToken
-import com.xayah.core.ui.model.getActionMenuConfirmItem
-import com.xayah.core.ui.model.getActionMenuReturnItem
 import com.xayah.core.ui.token.AnimationTokens
 import com.xayah.core.ui.token.PaddingTokens
 import com.xayah.core.ui.token.SizeTokens
@@ -125,8 +123,8 @@ fun ModalActionDropdownMenu(
                                 }
                             }
                         },
-                        leadingIcon = {
-                            if (countdown != 0) {
+                        leadingIcon = if (countdown != 0) {
+                            {
                                 Icon(
                                     imageVector = when (countdown) {
                                         3 -> ImageVectorToken.fromDrawable(R.drawable.ic_rounded_counter_3)
@@ -137,8 +135,10 @@ fun ModalActionDropdownMenu(
                                     tint = item.color.toColor(enabled = enabled),
                                     contentDescription = null
                                 )
-                            } else {
-                                item.icon?.apply {
+                            }
+                        } else if (item.icon == null) null else {
+                            {
+                                item.icon.apply {
                                     Icon(imageVector = item.icon.value, tint = item.color.toColor(enabled = enabled), contentDescription = null)
                                 }
                             }
@@ -363,21 +363,4 @@ fun ContentWithActions(modifier: Modifier = Modifier, actions: (MutableState<Boo
 
         ModalActionDropdownMenu(expanded = expanded.value, actionList = actions(expanded), onDismissRequest = { expanded.value = false })
     }
-}
-
-
-@Composable
-fun ContentWithConfirm(modifier: Modifier = Modifier, content: @Composable (MutableState<Boolean>) -> Unit, onConfirm: suspend () -> Unit) {
-    ContentWithActions(
-        modifier = modifier, actions = { expanded ->
-            listOf(
-                getActionMenuReturnItem { expanded.value = false },
-                getActionMenuConfirmItem {
-                    onConfirm()
-                    expanded.value = false
-                }
-            )
-        },
-        content = content
-    )
 }

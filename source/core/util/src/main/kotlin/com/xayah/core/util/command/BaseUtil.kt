@@ -10,7 +10,7 @@ import androidx.core.graphics.drawable.toDrawable
 import com.topjohnwu.superuser.Shell
 import com.xayah.core.common.util.BuildConfigUtil
 import com.xayah.core.common.util.trim
-import com.xayah.core.model.database.LogcatEntity
+import com.xayah.core.datastore.readCustomSUFile
 import com.xayah.core.util.BinArchiveName
 import com.xayah.core.util.LogUtil
 import com.xayah.core.util.LogUtil.TAG_SHELL_CODE
@@ -26,24 +26,20 @@ import com.xayah.core.util.logDir
 import com.xayah.core.util.model.ShellResult
 import com.xayah.core.util.withIOContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import net.lingala.zip4j.ZipFile
-import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
 private class EnvInitializer : Shell.Initializer() {
     companion object {
         fun initShell(shell: Shell, context: Context) {
             shell.newJob()
-                .add("nsenter -t 1 -m su") // Switch to global namespace
+                .add("nsenter --mount=/proc/1/ns/mnt sh") // Switch to global namespace
                 .add("export PATH=${context.binDir()}:${USD}PATH")
                 .add("export HOME=${context.filesDir()}")
                 .add("set -o pipefail") // Ensure that the exit code of each command is correct.
@@ -58,20 +54,21 @@ private class EnvInitializer : Shell.Initializer() {
 }
 
 object BaseUtil {
-    private fun getShellBuilder() = Shell.Builder.create()
+    private suspend fun getShellBuilder(context: Context) = Shell.Builder.create()
         .setFlags(Shell.FLAG_MOUNT_MASTER or Shell.FLAG_REDIRECT_STDERR)
         .setInitializers(EnvInitializer::class.java)
+        .setCommands(context.readCustomSUFile().first())
         .setTimeout(3)
 
-    private fun getNewShell() = getShellBuilder().build()
+    private suspend fun getNewShell(context: Context) = getShellBuilder(context).build()
 
-    fun initializeEnvironment(context: Context) = run {
+    suspend fun initializeEnvironment(context: Context) = run {
         // Set up shell environment.
         Shell.enableVerboseLogging = BuildConfigUtil.ENABLE_VERBOSE
-        Shell.setDefaultBuilder(getShellBuilder())
+        Shell.setDefaultBuilder(getShellBuilder(context))
 
         // Set up LogUtil.
-        LogUtil.initialize(context.logDir())
+        LogUtil.initialize(context, context.logDir())
     }
 
     suspend fun execute(vararg args: String, shell: Shell? = null, log: Boolean = true): ShellResult = withIOContext {
@@ -124,7 +121,7 @@ object BaseUtil {
         shellResult
     }
 
-    suspend fun kill(vararg keys: String) {
+    suspend fun kill(context: Context, vararg keys: String) {
         // ps -A | grep -w $key1 | grep -w $key2 | ... | awk 'NF>1{print $2}' | xargs kill -9
         val keysArg = keys.map { "| grep -w $it" }.toTypedArray()
         execute(
@@ -132,12 +129,12 @@ object BaseUtil {
             *keysArg,
             "| awk 'NF>1{print ${USD}2}'",
             "| xargs kill -9",
-            shell = getNewShell(),
+            shell = getNewShell(context),
             timeout = -1
         )
     }
 
-    suspend fun killPackage(userId: Int, packageName: String) = runBlocking {
+    suspend fun killPackage(context: Context, userId: Int, packageName: String) = runBlocking {
         val cmd = """
             until [[ $USD(dumpsys activity processes | grep "packageList" | cut -d '{' -f2 | cut -d '}' -f1 | egrep -w "$packageName" | sed -n '1p') = "" ]]; do
                 killall -9 "$packageName" &>/dev/null
@@ -145,49 +142,7 @@ object BaseUtil {
                 am kill "$packageName" &>/dev/null
             done
         """.trimIndent()
-        execute(cmd, shell = getNewShell(), timeout = 3)
-    }
-
-    suspend fun logcat(timestamp: Long, mutex: Mutex, isRunning: MutableStateFlow<Boolean>, onCached: suspend (cached: List<LogcatEntity>) -> Unit) = withIOContext {
-        getNewShell().also { shell ->
-            shell.execTask { stdin, stdout, _ ->
-                val tmpContents = mutableListOf<LogcatEntity>()
-                launch {
-                    while (true) {
-                        delay(1000)
-                        mutex.withLock {
-                            onCached(tmpContents)
-                            tmpContents.clear()
-                        }
-                        if (isRunning.value.not()) break
-                    }
-                }
-                launch {
-                    BufferedReader(InputStreamReader(stdout, Charsets.UTF_8)).use {
-                        while (true) {
-                            if (isRunning.value.not()) {
-                                shell.close()
-                                break
-                            } else {
-                                val raw = it.readLine().split("\\s+".toRegex(), limit = 6)
-                                if (raw.size == 6) {
-                                    val info = raw[5].split(":", limit = 2)
-                                    if (info.size == 2) {
-                                        val tag = info[0].trim()
-                                        val msg = info[1].trim()
-                                        mutex.withLock {
-                                            tmpContents.add(LogcatEntity(0, "$timestamp", raw[0], raw[1], raw[2], raw[3], raw[4], tag, msg))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                stdin.write("logcat\n".toByteArray(Charsets.UTF_8))
-                stdin.flush()
-            }
-        }
+        execute(cmd, shell = getNewShell(context), timeout = 3)
     }
 
     suspend fun mkdirs(dst: String) = withIOContext {
@@ -299,10 +254,10 @@ object BaseUtil {
         ).outString
     }
 
-    suspend fun readSuVersion() = run {
+    suspend fun readSuVersion(su: String) = run {
         // su -v
         execute(
-            "su",
+            su,
             "-v",
             log = false,
         ).outString

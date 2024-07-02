@@ -2,10 +2,31 @@
     <item name="word_return" type="string" />
     <item name="confirm" type="string" />
     <item name="cancel" type="string" />
-    <item name="prompt" type="string" />
     <item name="delete" type="string" />
+    <item name="unknown" type="string" />
+    <item name="user" type="string" />
+    <item name="id" type="string" />
+    <item name="_protected" type="string" />
+    <item name="ssaid" type="string" />
+    <item name="keystore" type="string" />
+    <item name="time" type="string" />
+    <item name="succeed" type="string" />
+    <item name="failed" type="string" />
+    <item name="backup_user" type="string" />
+    <item name="restore_user" type="string" />
+    <item name="not_exist" type="string" />
+    <item name="specify_a_path" type="string" />
+
     <item name="jetbrains_mono_regular" type="font" />
     <item name="ic_rounded_check_circle" type="drawable" />
     <item name="ic_rounded_cancel" type="drawable" />
+    <item name="ic_rounded_cancel_circle" type="drawable" />
     <item name="ic_rounded_not_started" type="drawable" />
+    <item name="ic_rounded_arrow_circle_up" type="drawable" />
+    <item name="ic_rounded_arrow_circle_down" type="drawable" />
+    <item name="ic_launcher_foreground_tonal" type="drawable" />
+
+    <item name="ic_launcher_background" type="color" />
+
+
 </resources>

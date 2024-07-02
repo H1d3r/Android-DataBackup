@@ -16,6 +16,7 @@ dependencies {
     implementation(project(":core:datastore"))
     implementation(project(":core:data"))
     implementation(project(":feature:main:directory"))
+    implementation(project(":feature:main:configurations"))
 
     // Compose Navigation
     implementation(libs.androidx.navigation.compose)

@@ -6,14 +6,12 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.xayah.core.database.dao.CloudDao
 import com.xayah.core.database.dao.DirectoryDao
-import com.xayah.core.database.dao.LogcatDao
 import com.xayah.core.database.dao.MediaDao
 import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.database.dao.TaskDao
 import com.xayah.core.database.util.StringListConverters
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.DirectoryEntity
-import com.xayah.core.model.database.LogcatEntity
 import com.xayah.core.model.database.MediaEntity
 import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.ProcessingInfoEntity
@@ -33,7 +31,6 @@ import com.xayah.core.model.database.TaskEntity
         TaskDetailPackageEntity::class,
         TaskDetailMediaEntity::class,
         ProcessingInfoEntity::class,
-        LogcatEntity::class,
     ],
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
@@ -49,5 +46,4 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun directoryDao(): DirectoryDao
     abstract fun cloudDao(): CloudDao
-    abstract fun logcatDao(): LogcatDao
 }

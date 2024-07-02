@@ -1,174 +1,207 @@
 package com.xayah.feature.main.medium
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material3.ButtonColors
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
+import androidx.compose.material3.FabPosition
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.font.FontWeight
-import com.xayah.core.model.database.MediaEntity
-import com.xayah.core.model.util.formatSize
-import com.xayah.core.ui.component.Card
-import com.xayah.core.ui.component.FilledIconTextButton
-import com.xayah.core.ui.component.HeaderItem
-import com.xayah.core.ui.component.InfoItem
-import com.xayah.core.ui.component.LabelSmallText
-import com.xayah.core.ui.component.TitleMediumText
-import com.xayah.core.ui.component.outlinedCardBorder
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
+import com.dotlottie.dlplayer.Mode
+import com.lottiefiles.dotlottie.core.compose.ui.DotLottieAnimation
+import com.lottiefiles.dotlottie.core.util.DotLottieSource
+import com.xayah.core.ui.component.BodyLargeText
+import com.xayah.core.ui.component.Divider
+import com.xayah.core.ui.component.InnerBottomSpacer
+import com.xayah.core.ui.component.InnerTopSpacer
+import com.xayah.core.ui.component.LinearProgressIndicator
+import com.xayah.core.ui.component.SecondaryLargeTopBar
+import com.xayah.core.ui.component.SecondaryTopBar
+import com.xayah.core.ui.component.paddingBottom
+import com.xayah.core.ui.material3.SnackbarHost
+import com.xayah.core.ui.material3.SnackbarHostState
 import com.xayah.core.ui.material3.toColor
-import com.xayah.core.ui.material3.tokens.ColorSchemeKeyTokens
-import com.xayah.core.ui.model.ImageVectorToken
 import com.xayah.core.ui.model.StringResourceToken
 import com.xayah.core.ui.token.AnimationTokens
-import com.xayah.core.ui.token.PaddingTokens
-import com.xayah.core.ui.util.fromString
+import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.ui.util.fromStringId
+import com.xayah.core.ui.util.value
 
-@ExperimentalLayoutApi
-@ExperimentalFoundationApi
+@ExperimentalAnimationApi
 @ExperimentalMaterial3Api
 @Composable
-fun MediaCard(
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    name: String,
-    path: String,
-    cardSelected: Boolean,
-    onCardClick: () -> Unit,
-    onCardLongClick: () -> Unit,
-    infoChipGroup: @Composable (RowScope.() -> Unit),
+fun ListScaffold(
+    scrollBehavior: TopAppBarScrollBehavior,
+    snackbarHostState: SnackbarHostState,
+    title: StringResourceToken,
+    actions: @Composable RowScope.() -> Unit = {},
+    progress: Float? = null,
+    floatingActionButton: @Composable () -> Unit = {},
+    floatingActionButtonPosition: FabPosition = FabPosition.End,
+    innerBottomSpacer: Boolean = false,
+    onBackClick: (() -> Unit)? = null,
+    content: @Composable (BoxScope.(innerPadding: PaddingValues) -> Unit)
 ) {
-    val haptic = LocalHapticFeedback.current
-
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .wrapContentHeight(),
-        enabled = enabled,
-        onClick = onCardClick,
-        onLongClick = {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            onCardLongClick()
-        },
-        border = if (cardSelected) outlinedCardBorder(borderColor = ColorSchemeKeyTokens.Primary.toColor(enabled)) else null,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(PaddingTokens.Level4)
-        ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(PaddingTokens.Level2)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(PaddingTokens.Level2)
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        TitleMediumText(text = name, fontWeight = FontWeight.Bold)
-                        LabelSmallText(text = path)
-                    }
-                    if (cardSelected) Icon(
-                        imageVector = Icons.Filled.CheckCircle,
-                        contentDescription = null,
-                        modifier = Modifier.align(Alignment.Top),
-                        tint = ColorSchemeKeyTokens.Primary.toColor(enabled),
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            Column {
+                SecondaryTopBar(
+                    scrollBehavior = scrollBehavior,
+                    title = title,
+                    actions = actions,
+                    onBackClick = onBackClick,
+                )
+                if (progress == -1F) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                } else {
+                    var targetProgress by remember { mutableFloatStateOf(0f) }
+                    val animatedProgress = animateFloatAsState(
+                        targetValue = targetProgress,
+                        animationSpec = tween(),
+                        label = AnimationTokens.AnimatedProgressLabel
                     )
-                }
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PaddingTokens.Level2),
-                    verticalArrangement = Arrangement.spacedBy(PaddingTokens.Level2),
-                    content = {
-                        infoChipGroup()
+                    if (progress != null) {
+                        targetProgress = progress
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = animatedProgress.value)
                     }
+                }
+            }
+        },
+        floatingActionButtonPosition = floatingActionButtonPosition,
+        floatingActionButton = floatingActionButton,
+        snackbarHost = {
+            with(LocalDensity.current) {
+                SnackbarHost(
+                    hostState = snackbarHostState,
                 )
             }
+        },
+    ) { innerPadding ->
+        Column {
+            InnerTopSpacer(innerPadding = innerPadding)
+
+            Box(modifier = Modifier.weight(1f), content = {
+                content(this, innerPadding)
+            })
+
+            if (innerBottomSpacer) InnerBottomSpacer(innerPadding = innerPadding)
         }
     }
 }
 
-@ExperimentalLayoutApi
-@ExperimentalFoundationApi
+@ExperimentalAnimationApi
 @ExperimentalMaterial3Api
 @Composable
-fun OpItem(
-    title: StringResourceToken,
-    btnText: StringResourceToken,
-    btnIcon: ImageVectorToken,
-    btnColors: ButtonColors = ButtonDefaults.buttonColors(),
-    isRefreshing: Boolean,
-    activatedState: Boolean,
-    itemState: MediaEntity,
-    onBtnClick: () -> Unit,
-    infoContent: @Composable ColumnScope.() -> Unit,
-    btnContent: (@Composable ColumnScope.() -> Unit)? = null,
-    extraBtnContent: (@Composable ColumnScope.() -> Unit)? = null,
+fun ProcessingSetupScaffold(
+    scrollBehavior: TopAppBarScrollBehavior, title: StringResourceToken,
+    snackbarHostState: SnackbarHostState,
+    onBackClick: (() -> Unit)? = null,
+    progress: Float = -1f,
+    actions: @Composable RowScope.() -> Unit = {},
+    content: @Composable (BoxScope.() -> Unit)
 ) {
-    var expand by remember { mutableStateOf(false) }
-    HeaderItem(expand = expand, title = title) {
-        expand = expand.not()
-    }
-    AnimatedContent(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(),
-        targetState = expand,
-        label = AnimationTokens.AnimatedContentLabel
-    ) { targetState ->
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(PaddingTokens.Level2)
-        ) {
-            InfoItem(
-                title = StringResourceToken.fromStringId(R.string.id),
-                content = StringResourceToken.fromString(itemState.indexInfo.preserveId.toString())
-            )
-            InfoItem(
-                title = StringResourceToken.fromStringId(R.string.data_size),
-                content = StringResourceToken.fromString(itemState.mediaInfo.displayBytes.toDouble().formatSize())
-            )
-            infoContent()
-            if (targetState) {
-                btnContent?.invoke(this)
+    var bottomBarSize by remember { mutableStateOf(IntSize.Zero) }
+
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            Column {
+                SecondaryLargeTopBar(
+                    scrollBehavior = scrollBehavior,
+                    title = title,
+                    onBackClick = onBackClick,
+                )
+                if (progress != -1f) {
+                    var targetProgress by remember { mutableFloatStateOf(0f) }
+                    val animatedProgress = animateFloatAsState(
+                        targetValue = targetProgress,
+                        animationSpec = tween(),
+                        label = AnimationTokens.AnimatedProgressLabel
+                    )
+                    targetProgress = if (progress.isNaN()) 0f else progress
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), progress = animatedProgress.value)
+                }
             }
-            FilledIconTextButton(
+        },
+        snackbarHost = {
+            with(LocalDensity.current) {
+                SnackbarHost(
+                    modifier = Modifier
+                        .paddingBottom(bottomBarSize.height.toDp() + SizeTokens.Level24 + SizeTokens.Level4),
+                    hostState = snackbarHostState,
+                )
+            }
+        },
+    ) { innerPadding ->
+        Column {
+            InnerTopSpacer(innerPadding = innerPadding)
+
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth(),
-                text = if (activatedState)
-                    StringResourceToken.fromStringId(R.string.task_is_in_progress)
-                else
-                    btnText,
-                icon = btnIcon,
-                colors = btnColors,
-                enabled = isRefreshing.not() && activatedState.not(),
-                onClick = onBtnClick
-            )
-            extraBtnContent?.invoke(this)
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                content()
+            }
+
+            Divider()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(SizeTokens.Level16)
+                    .onSizeChanged { bottomBarSize = it },
+                horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level12, Alignment.End),
+            ) {
+                actions()
+            }
+
+            InnerBottomSpacer(innerPadding = innerPadding)
         }
     }
+}
+
+@Composable
+fun DotLottieView(isLoading: Boolean) {
+    DotLottieAnimation(
+        source = DotLottieSource.Asset("bear.lottie"),
+        autoplay = true,
+        loop = true,
+        playMode = Mode.FORWARD,
+        modifier = Modifier.background(Color.Transparent)
+    )
+    BodyLargeText(
+        text = (
+                if (isLoading)
+                    StringResourceToken.fromStringId(R.string.loading)
+                else
+                    StringResourceToken.fromStringId(R.string.no_backups_found_warning)
+                ).value,
+        color = com.xayah.core.ui.material3.tokens.ColorSchemeKeyTokens.OnSurfaceVariant.toColor(),
+        textAlign = TextAlign.Center
+    )
 }

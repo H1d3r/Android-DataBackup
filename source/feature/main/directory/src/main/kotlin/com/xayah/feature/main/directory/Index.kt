@@ -43,11 +43,12 @@ fun PageDirectory() {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
 
     LaunchedEffect(null) {
-        viewModel.emitIntent(IndexUiIntent.Update)
+        viewModel.emitIntentOnIO(IndexUiIntent.Update)
     }
 
     DirectoryScaffold(
         scrollBehavior = scrollBehavior,
+        isLoading = uiState.updating,
         title = StringResourceToken.fromStringId(R.string.backup_dir),
         actions = {}
     ) {
@@ -63,13 +64,13 @@ fun PageDirectory() {
 
             items(items = internalDirectoriesState) { item ->
                 DirectoryCard(item = item) {
-                    viewModel.emitIntent(IndexUiIntent.Select(entity = item))
+                    viewModel.emitIntentOnIO(IndexUiIntent.Select(entity = item))
                 }
             }
 
             items(items = externalDirectoriesState) { item ->
                 DirectoryCard(item = item) {
-                    viewModel.emitIntent(IndexUiIntent.Select(entity = item))
+                    viewModel.emitIntentOnIO(IndexUiIntent.Select(entity = item))
                 }
             }
 
@@ -79,21 +80,21 @@ fun PageDirectory() {
                         listOf(
                             getActionMenuReturnItem { expanded.value = false },
                             getActionMenuDeleteItem {
-                                viewModel.emitIntentSuspend(IndexUiIntent.Delete(entity = item))
+                                viewModel.emitIntent(IndexUiIntent.Delete(entity = item))
                                 expanded.value = false
                             }
                         )
                     },
                 ) {
                     DirectoryCard(item = item, performHapticFeedback = true, onLongClick = { it.value = true }) {
-                        viewModel.emitIntent(IndexUiIntent.Select(entity = item))
+                        viewModel.emitIntentOnIO(IndexUiIntent.Select(entity = item))
                     }
                 }
             }
 
             item {
                 CustomDirectoryCard(enabled = uiState.updating.not()) {
-                    viewModel.emitIntent(IndexUiIntent.Add(context = context as ComponentActivity))
+                    viewModel.emitIntentOnIO(IndexUiIntent.Add(context = context as ComponentActivity))
                 }
             }
 

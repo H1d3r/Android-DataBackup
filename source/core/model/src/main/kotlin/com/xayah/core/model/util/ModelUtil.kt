@@ -4,6 +4,7 @@ import com.xayah.core.model.CompressionType
 import com.xayah.core.model.LZ4_SUFFIX
 import com.xayah.core.model.OpType
 import com.xayah.core.model.SelectionType
+import com.xayah.core.model.SmbAuthMode
 import com.xayah.core.model.SortType
 import com.xayah.core.model.TAR_SUFFIX
 import com.xayah.core.model.ThemeType
@@ -11,7 +12,7 @@ import com.xayah.core.model.ZSTD_SUFFIX
 import java.text.DecimalFormat
 import kotlin.math.pow
 
-fun Double.formatSize(unitValue: Int = 1000): String = run {
+fun Double.formatSize(unitValue: Int = 1024): String = run {
     var unit = "Bytes"
     var size = this
     val gb = unitValue.toDouble().pow(3)
@@ -51,3 +52,9 @@ fun SelectionType.Companion.of(name: String?): SelectionType =
 
 fun ThemeType.Companion.of(name: String?): ThemeType =
     runCatching { ThemeType.valueOf(name!!.uppercase()) }.getOrDefault(ThemeType.AUTO)
+
+fun SmbAuthMode.Companion.indexOf(index: Int): SmbAuthMode = when (index) {
+    1 -> SmbAuthMode.GUEST
+    2 -> SmbAuthMode.ANONYMOUS
+    else -> SmbAuthMode.PASSWORD
+}

@@ -7,7 +7,6 @@ import androidx.room.Upsert
 import com.xayah.core.model.CompressionType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.database.MediaEntity
-import com.xayah.core.model.database.MediaEntityWithCount
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -19,11 +18,23 @@ interface MediaDao {
     suspend fun upsert(item: MediaEntity)
 
     @Query(
+        "SELECT * FROM MediaEntity WHERE" +
+                " indexInfo_opType = :opType AND extraInfo_blocked = :blocked"
+    )
+    suspend fun query(opType: OpType, blocked: Boolean): List<MediaEntity>
+
+    @Query(
         "SELECT * FROM MediaEntity" +
                 " WHERE indexInfo_opType = :opType AND indexInfo_preserveId = :preserveId" +
                 " AND indexInfo_cloud = :cloud AND indexInfo_backupDir = :backupDir"
     )
     suspend fun query(opType: OpType, preserveId: Long, cloud: String, backupDir: String): List<MediaEntity>
+
+    @Query(
+        "SELECT * FROM MediaEntity WHERE" +
+                " indexInfo_opType = :opType AND extraInfo_existed = 1 AND indexInfo_cloud = :cloud AND indexInfo_backupDir = :backupDir"
+    )
+    suspend fun query(opType: OpType, cloud: String, backupDir: String): List<MediaEntity>
 
     @Query(
         "SELECT * FROM MediaEntity" +
@@ -42,14 +53,36 @@ interface MediaDao {
 
     @Query(
         "SELECT * FROM MediaEntity WHERE" +
+                " indexInfo_name = :name AND indexInfo_opType = :opType" +
+                " LIMIT 1"
+    )
+    suspend fun query(name: String, opType: OpType): MediaEntity?
+
+    @Query(
+        "SELECT * FROM MediaEntity WHERE" +
                 " indexInfo_opType = :opType AND indexInfo_preserveId = :preserveId AND indexInfo_name = :name AND indexInfo_compressionType = :ct" +
                 " AND indexInfo_cloud = :cloud AND indexInfo_backupDir = :backupDir" +
                 " LIMIT 1"
     )
     suspend fun query(opType: OpType, preserveId: Long, name: String, ct: CompressionType, cloud: String, backupDir: String): MediaEntity?
 
-    @Query("SELECT * FROM MediaEntity WHERE extraInfo_activated = 1")
-    suspend fun queryActivated(): List<MediaEntity>
+    @Query("SELECT * FROM MediaEntity WHERE extraInfo_activated = 1 AND indexInfo_opType = :opType")
+    suspend fun queryActivated(opType: OpType): List<MediaEntity>
+
+    @Query("SELECT * FROM MediaEntity WHERE extraInfo_activated = 1 AND indexInfo_opType = :opType AND indexInfo_cloud = :cloud AND indexInfo_backupDir = :backupDir")
+    suspend fun queryActivated(opType: OpType, cloud: String, backupDir: String): List<MediaEntity>
+
+    @Query(
+        "SELECT * FROM MediaEntity WHERE" +
+                " indexInfo_opType = :opType AND extraInfo_blocked = :blocked"
+    )
+    fun queryFlow(opType: OpType, blocked: Boolean): Flow<List<MediaEntity>>
+
+    @Query(
+        "SELECT * FROM MediaEntity WHERE" +
+                " indexInfo_opType = :opType AND indexInfo_cloud = :cloud AND indexInfo_backupDir = :backupDir"
+    )
+    fun queryFlow(opType: OpType, cloud: String, backupDir: String): Flow<List<MediaEntity>>
 
     @Query("SELECT * FROM MediaEntity WHERE indexInfo_opType = :opType AND indexInfo_preserveId = :preserveId")
     fun queryFlow(opType: OpType, preserveId: Long): Flow<List<MediaEntity>>
@@ -63,21 +96,25 @@ interface MediaDao {
     @Query("SELECT COUNT(*) FROM MediaEntity WHERE extraInfo_activated = 1")
     fun countActivatedFlow(): Flow<Long>
 
+    @Query("SELECT COUNT(*) FROM MediaEntity")
+    suspend fun count(): Long
+
     @Query("UPDATE MediaEntity SET extraInfo_activated = 0")
     suspend fun clearActivated()
 
-    @Query(
-        "SELECT r.*, l.count FROM " +
-                "(SELECT indexInfo_name, MIN(indexInfo_opType) AS opType, COUNT(*) AS count FROM MediaEntity GROUP BY indexInfo_name) AS l" +
-                " LEFT JOIN MediaEntity AS r ON l.indexInfo_name = r.indexInfo_name AND l.opType = r.indexInfo_opType" +
-                " AND r.id = (SELECT MAX(id) FROM MediaEntity WHERE indexInfo_name = l.indexInfo_name AND indexInfo_opType = l.opType)" +
-                " ORDER BY indexInfo_opType"
-    )
-    fun queryFlow(): Flow<List<MediaEntityWithCount>>
+    @Query("UPDATE MediaEntity SET extraInfo_blocked = 0")
+    suspend fun clearBlocked()
 
-    @Query("SELECT *, 1 AS count FROM MediaEntity WHERE indexInfo_opType = :opType")
-    fun queryFlow(opType: OpType): Flow<List<MediaEntityWithCount>>
+    @Query(
+        "UPDATE MediaEntity" +
+                " SET extraInfo_blocked = :blocked" +
+                " WHERE id = :id"
+    )
+    suspend fun setBlocked(id: Long, blocked: Boolean)
 
     @Delete(entity = MediaEntity::class)
     suspend fun delete(item: MediaEntity)
+
+    @Query("DELETE FROM MediaEntity WHERE id = :id")
+    suspend fun delete(id: Long)
 }

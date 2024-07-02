@@ -13,8 +13,10 @@ import com.xayah.libpickyou.parcelables.FileParcelable
 import com.xayah.libpickyou.ui.PickYouLauncher
 import com.xayah.libpickyou.ui.model.PickerType
 import com.xayah.libsardine.impl.OkHttpSardine
+import okhttp3.OkHttpClient
 import java.io.File
 import java.nio.file.Paths
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.pathString
 
 class WebDAVClientImpl(private val entity: CloudEntity) : CloudClient {
@@ -33,7 +35,13 @@ class WebDAVClientImpl(private val entity: CloudEntity) : CloudClient {
     }
 
     override fun connect() {
-        client = OkHttpSardine().apply {
+        client = OkHttpSardine(
+            OkHttpClient.Builder()
+                .connectTimeout(0, TimeUnit.SECONDS)
+                .readTimeout(0, TimeUnit.SECONDS)
+                .writeTimeout(0, TimeUnit.SECONDS)
+                .build()
+        ).apply {
             setCredentials(entity.user, entity.pass)
             list(entity.host)
         }
@@ -63,7 +71,7 @@ class WebDAVClientImpl(private val entity: CloudEntity) : CloudClient {
         client.move(getPath(src), getPath(dst), false)
     }
 
-    override fun upload(src: String, dst: String) = withClient { client ->
+    override fun upload(src: String, dst: String, onUploading: (read: Long, total: Long) -> Unit) = withClient { client ->
         val name = Paths.get(src).fileName
         val dstPath = "${getPath(dst)}/$name"
         log { "upload: $src to $dstPath" }
@@ -71,7 +79,7 @@ class WebDAVClientImpl(private val entity: CloudEntity) : CloudClient {
         client.put(dstPath, srcFile, null)
     }
 
-    override fun download(src: String, dst: String) = withClient { client ->
+    override fun download(src: String, dst: String, onDownloading: (written: Long, total: Long) -> Unit) = withClient { client ->
         val name = Paths.get(src).fileName
         val dstPath = "${dst}/$name"
         log { "download: ${getPath(src)} to $dstPath" }

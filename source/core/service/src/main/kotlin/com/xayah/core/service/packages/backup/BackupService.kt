@@ -5,13 +5,18 @@ import android.app.Service
 import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
+import android.view.SurfaceControlHidden
 import com.xayah.core.data.repository.PackageRepository
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.database.dao.TaskDao
-import com.xayah.core.datastore.readBackupFilterFlagIndex
+import com.xayah.core.datastore.readAutoScreenOff
+import com.xayah.core.datastore.readResetBackupList
+import com.xayah.core.datastore.readScreenOffTimeout
 import com.xayah.core.datastore.readSelectionType
 import com.xayah.core.datastore.saveLastBackupTime
+import com.xayah.core.datastore.saveScreenOffCountDown
+import com.xayah.core.datastore.saveScreenOffTimeout
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.OperationState
@@ -90,6 +95,9 @@ internal abstract class BackupService : Service() {
     @SuppressLint("StringFormatInvalid")
     suspend fun initialize(): Long {
         mutex.withLock {
+            if (rootService.getScreenOffTimeout() != Int.MAX_VALUE) {
+                context.saveScreenOffTimeout(rootService.getScreenOffTimeout())
+            }
             if (isInitialized.not()) {
                 taskEntity.also {
                     it.id = taskDao.upsert(it)
@@ -127,7 +135,8 @@ internal abstract class BackupService : Service() {
                     id = taskDao.upsert(this)
                 }
 
-                val packages = packageDao.queryActivated(OpType.BACKUP).filter(packageRepository.getFlagPredicateNew(index = context.readBackupFilterFlagIndex().first()))
+                val packages = packageRepository.filterBackup(packageRepository.queryActivated(OpType.BACKUP))
+
                 packages.forEach { pkg ->
                     pkgEntities.add(TaskDetailPackageEntity(
                         id = 0,
@@ -155,6 +164,11 @@ internal abstract class BackupService : Service() {
                 it.state = OperationState.PROCESSING
                 taskDao.upsert(it)
             }
+
+            if (context.readAutoScreenOff().first()) {
+                context.saveScreenOffCountDown(3)
+            }
+
             startTimestamp = DateUtil.getTimestamp()
 
             NotificationUtil.notify(context, notificationBuilder, context.getString(R.string.backing_up), context.getString(R.string.preprocessing))
@@ -176,8 +190,15 @@ internal abstract class BackupService : Service() {
             log { "InputMethods: ${backupPreprocessing.inputMethods}." }
             log { "AccessibilityServices: ${backupPreprocessing.accessibilityServices}." }
 
+            runCatchingOnService { createTargetDirs() }
+
             prePreparationsEntity.also {
                 it.state = OperationState.DONE
+                taskDao.upsert(it)
+            }
+
+            taskEntity.also {
+                it.processingIndex++
                 taskDao.upsert(it)
             }
 
@@ -202,7 +223,6 @@ internal abstract class BackupService : Service() {
             log { "Processing is starting." }
             val selectionType = context.readSelectionType().first()
             log { "Selection: $selectionType." }
-            runCatchingOnService { createTargetDirs() }
 
             // createTargetDirs() before readStatFs().
             taskEntity.also {
@@ -231,9 +251,14 @@ internal abstract class BackupService : Service() {
 
                 // Kill the package.
                 log { "Trying to kill ${pkg.packageEntity.packageName}." }
-                BaseUtil.killPackage(userId = pkg.packageEntity.userId, packageName = pkg.packageEntity.packageName)
+                BaseUtil.killPackage(context = context, userId = pkg.packageEntity.userId, packageName = pkg.packageEntity.packageName)
 
                 runCatchingOnService { backupPackage(pkg) }
+
+                taskEntity.also {
+                    it.processingIndex++
+                    taskDao.upsert(it)
+                }
             }
         }
     }
@@ -277,7 +302,7 @@ internal abstract class BackupService : Service() {
             runCatchingOnService { backupIcons() }
             runCatchingOnService { clear() }
 
-            packageDao.clearActivated()
+            if (context.readResetBackupList().first()) packageDao.clearActivated()
             endTimestamp = DateUtil.getTimestamp()
             taskEntity.also {
                 it.endTimestamp = endTimestamp
@@ -293,6 +318,14 @@ internal abstract class BackupService : Service() {
                 "${time}, ${taskEntity.successCount} ${context.getString(R.string.succeed)}, ${taskEntity.failureCount} ${context.getString(R.string.failed)}",
                 ongoing = false
             )
+
+            taskEntity.also {
+                it.processingIndex++
+                taskDao.upsert(it)
+            }
+
+            rootService.setScreenOffTimeout(context.readScreenOffTimeout().first())
+            rootService.setDisplayPowerMode(SurfaceControlHidden.POWER_MODE_NORMAL)
         }
     }
 }

@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.ripple.rememberRipple
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
@@ -133,10 +132,45 @@ fun Clickable(
 
 @ExperimentalAnimationApi
 @Composable
+fun Clickable(
+    enabled: Boolean = true,
+    title: StringResourceToken, value: StringResourceToken? = null,
+    desc: StringResourceToken? = null,
+    leadingIcon: ImageVectorToken? = null,
+    trailingIcon: ImageVectorToken? = null,
+    interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
+    content: @Composable (ColumnScope.() -> Unit)? = null,
+    onClick: () -> Unit = {}
+) {
+    Clickable(enabled = enabled, desc = desc, onClick = onClick, indication = rememberRipple(), interactionSource = interactionSource) {
+        Row(modifier = Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level16)) {
+            if (leadingIcon != null) {
+                Icon(imageVector = leadingIcon.value, contentDescription = null, tint = ColorSchemeKeyTokens.LocalContent.toColor(enabled))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                AnimatedTextContainer(targetState = title.value) { text ->
+                    TitleLargeText(enabled = enabled, text = text, color = ColorSchemeKeyTokens.OnSurface.toColor(enabled), fontWeight = FontWeight.Normal)
+                }
+                if (value != null) AnimatedTextContainer(targetState = value.value) { text ->
+                    TitleSmallText(enabled = enabled, text = text, color = ColorSchemeKeyTokens.Outline.toColor(enabled), fontWeight = FontWeight.Normal)
+                }
+                content?.invoke(this)
+            }
+            if (trailingIcon != null) {
+                Icon(imageVector = trailingIcon.value, contentDescription = null, tint = ColorSchemeKeyTokens.LocalContent.toColor(enabled))
+            }
+        }
+    }
+}
+
+
+@ExperimentalAnimationApi
+@Composable
 fun Selectable(
     enabled: Boolean = true,
+    leadingIcon: ImageVectorToken? = null,
     title: StringResourceToken,
-    value: StringResourceToken,
+    value: StringResourceToken? = null,
     desc: StringResourceToken? = null,
     current: StringResourceToken,
     onClick: suspend () -> Unit = suspend {}
@@ -147,8 +181,11 @@ fun Selectable(
         title = title,
         value = value,
         desc = desc,
+        leadingContent = if (leadingIcon == null) null else {
+            { Icon(imageVector = leadingIcon.value, contentDescription = null) }
+        },
         trailingContent = {
-            FilledTonalButton(onClick = { scope.launch { onClick() } }) {
+            FilledTonalButton(enabled = enabled, onClick = { scope.launch { onClick() } }) {
 
                 Text(text = current.value)
             }
@@ -254,13 +291,7 @@ fun Checkable(
             if (icon != null) Icon(imageVector = icon.value, contentDescription = null)
         },
         trailingContent = {
-            Divider(
-                modifier = Modifier
-                    .height(SizeTokens.Level36)
-                    .width(SizeTokens.Level1)
-                    .fillMaxHeight()
-            )
-            Checkbox(modifier = Modifier, enabled = enabled, checked = checked, onCheckedChange = { onCheckedChange(checked) })
+            CheckIconButton(enabled = enabled, checked = checked, onCheckedChange = { onCheckedChange(checked) })
         },
         onClick = {
             onCheckedChange(checked)
@@ -269,7 +300,12 @@ fun Checkable(
 }
 
 @Composable
-fun Title(enabled: Boolean = true, title: StringResourceToken, content: @Composable ColumnScope.() -> Unit) {
+fun Title(
+    enabled: Boolean = true,
+    title: StringResourceToken,
+    verticalArrangement: Arrangement.Vertical = Arrangement.Top,
+    content: @Composable ColumnScope.() -> Unit
+) {
     Column {
         TitleSmallText(
             modifier = Modifier
@@ -280,6 +316,8 @@ fun Title(enabled: Boolean = true, title: StringResourceToken, content: @Composa
             color = ColorSchemeKeyTokens.Primary.toColor(),
             fontWeight = FontWeight.Medium
         )
-        content()
+        Column(verticalArrangement = verticalArrangement) {
+            content()
+        }
     }
 }

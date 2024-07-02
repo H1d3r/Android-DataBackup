@@ -59,6 +59,8 @@ fun OperationState.StateView(enabled: Boolean = true, expanded: Boolean = false,
                             OperationState.DONE -> ImageVectorToken.fromDrawable(R.drawable.ic_rounded_check_circle)
                             OperationState.ERROR -> ImageVectorToken.fromDrawable(R.drawable.ic_rounded_cancel)
                             OperationState.SKIP -> ImageVectorToken.fromDrawable(R.drawable.ic_rounded_not_started)
+                            OperationState.UPLOADING -> ImageVectorToken.fromDrawable(R.drawable.ic_rounded_arrow_circle_up)
+                            OperationState.DOWNLOADING -> ImageVectorToken.fromDrawable(R.drawable.ic_rounded_arrow_circle_down)
                             else -> ImageVectorToken.fromVector(Icons.Rounded.Circle)
                         }
                         ).value,
@@ -67,6 +69,7 @@ fun OperationState.StateView(enabled: Boolean = true, expanded: Boolean = false,
                         when (this) {
                             OperationState.ERROR -> ColorSchemeKeyTokens.Error
                             OperationState.SKIP -> ColorSchemeKeyTokens.YellowPrimary
+                            OperationState.UPLOADING, OperationState.DOWNLOADING -> ColorSchemeKeyTokens.GreenPrimary
                             else -> ColorSchemeKeyTokens.Primary
                         }
                         ).toColor(enabled)
@@ -81,6 +84,8 @@ val Info.toProcessingCardItem: ProcessingCardItem
             state = state,
             progress = progress,
             title = StringResourceToken.fromString(title),
+            log = StringResourceToken.fromString(log),
+            content = StringResourceToken.fromString(content)
         )
     }
 
@@ -90,6 +95,8 @@ val ProcessingInfoEntity.toProcessingCardItem: ProcessingCardItem
             state = state,
             progress = progress,
             title = StringResourceToken.fromString(title),
+            log = StringResourceToken.fromString(log),
+            content = StringResourceToken.fromString(content)
         )
     }
 

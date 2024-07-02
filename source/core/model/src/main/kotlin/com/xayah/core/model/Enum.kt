@@ -42,6 +42,11 @@ enum class TaskType {
     companion object
 }
 
+enum class StorageMode {
+    Local,
+    Cloud
+}
+
 enum class StorageType {
     INTERNAL,
     EXTERNAL,
@@ -84,10 +89,10 @@ enum class EmojiString(val emoji: String) {
     SWEAT_DROPLETS("💦"),
 }
 
-enum class CloudType {
-    FTP,
-    WEBDAV,
-    SMB,
+enum class CloudType(val title: String) {
+    FTP("FTP"),
+    WEBDAV("WebDAV"),
+    SMB("SMB / CIFS"),
 }
 
 enum class SmbVersion(val text: String) {
@@ -96,6 +101,14 @@ enum class SmbVersion(val text: String) {
     SMB_3_0("3.0"),
     SMB_3_0_2("3.0.2"),
     SMB_3_1_1("3.1.1"),
+}
+
+enum class SmbAuthMode(val index: Int) {
+    PASSWORD(0),
+    GUEST(1),
+    ANONYMOUS(2);
+
+    companion object
 }
 
 enum class DataState {

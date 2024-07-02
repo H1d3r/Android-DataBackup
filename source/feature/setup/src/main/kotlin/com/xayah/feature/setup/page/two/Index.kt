@@ -73,7 +73,7 @@ fun PageTwo() {
             Button(
                 enabled = backupSavePathSaved,
                 onClick = {
-                    viewModel.emitIntent(IndexUiIntent.ToMain(context = context as ComponentActivity))
+                    viewModel.emitIntentOnIO(IndexUiIntent.ToMain(context = context as ComponentActivity))
                 }
             ) {
                 Text(text = StringResourceToken.fromStringId(R.string.finish).value)
@@ -92,6 +92,14 @@ fun PageTwo() {
                 navController.navigate(SetupRoutes.Directory.route)
             }
             Title(title = StringResourceToken.fromStringId(R.string.optional)) {
+                AnimatedVisibility(visible = backupSavePathSaved) {
+                    Clickable(
+                        title = StringResourceToken.fromStringId(R.string.configurations),
+                        value = StringResourceToken.fromStringId(R.string.configurations_desc),
+                    ) {
+                        navController.navigate(SetupRoutes.Configurations.route)
+                    }
+                }
                 Switchable(
                     key = KeyLoadSystemApps,
                     defValue = false,
@@ -101,6 +109,7 @@ fun PageTwo() {
                 )
                 Switchable(
                     key = KeyCheckKeystore,
+                    defValue = true,
                     title = StringResourceToken.fromStringId(R.string.check_keystore),
                     checkedText = StringResourceToken.fromStringId(R.string.enabled),
                     notCheckedText = StringResourceToken.fromStringId(R.string.not_enabled),

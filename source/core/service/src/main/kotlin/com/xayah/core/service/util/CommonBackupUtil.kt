@@ -1,6 +1,7 @@
 package com.xayah.core.service.util
 
 import android.content.Context
+import android.os.Build
 import com.xayah.core.common.util.BuildConfigUtil
 import com.xayah.core.datastore.readCompressionTest
 import com.xayah.core.model.CompressionType
@@ -28,6 +29,7 @@ class CommonBackupUtil @Inject constructor(
     }
 
     fun getItselfDst(dstDir: String) = "${dstDir}/DataBackup.apk"
+
     suspend fun backupItself(dstDir: String): ShellResult = run {
         log { "Backing up itself..." }
 
@@ -41,7 +43,13 @@ class CommonBackupUtil @Inject constructor(
             val targetPath = getItselfDst(dstDir = dstDir)
 
             if (rootService.exists(targetPath) && (rootService.getPackageArchiveInfo(targetPath)
-                    ?.let { BuildConfigUtil.VERSION_CODE == it.longVersionCode } == true)
+                    ?.let {
+                        BuildConfigUtil.VERSION_CODE == if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            it.longVersionCode
+                        } else {
+                            it.versionCode.toLong()
+                        }
+                    } == true)
             ) {
                 isSuccess = true
                 out.add(log { "$targetPath exists, skip." })

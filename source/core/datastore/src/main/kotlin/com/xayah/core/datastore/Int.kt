@@ -2,32 +2,27 @@ package com.xayah.core.datastore
 
 import android.content.Context
 import androidx.datastore.preferences.core.intPreferencesKey
+import com.xayah.core.datastore.ConstantUtil.DEFAULT_TIMEOUT
 
 // -----------------------------------------Keys-----------------------------------------
-val KeyBackupUserId = intPreferencesKey("backup_user_id")
-val KeyRestoreUserId = intPreferencesKey("restore_user_id")
-val KeyBackupSortTypeIndex = intPreferencesKey("backup_sort_type_index")
-val KeyRestoreSortTypeIndex = intPreferencesKey("restore_sort_type_index")
 val KeyBackupFilterFlagIndex = intPreferencesKey("backup_filter_flag_index")
 val KeyRestoreFilterFlagIndex = intPreferencesKey("restore_filter_flag_index")
-val KeyRestoreInstallationTypeIndex = intPreferencesKey("restore_installation_type_index")
+val KeyScreenOffCountDown = intPreferencesKey("screen_off_count_down")
+val KeyScreenOffTimeout = intPreferencesKey("screen_off_timeout")
+val KeyRestoreUser = intPreferencesKey("restore_user")
 
 
 // -----------------------------------------Read-----------------------------------------
-fun Context.readBackupUserId() = readStoreInt(key = KeyBackupUserId, defValue = 0)
-fun Context.readRestoreUserId() = readStoreInt(key = KeyRestoreUserId, defValue = 0)
-fun Context.readBackupSortTypeIndex() = readStoreInt(key = KeyBackupSortTypeIndex, defValue = 0)
-fun Context.readRestoreSortTypeIndex() = readStoreInt(key = KeyRestoreSortTypeIndex, defValue = 0)
 fun Context.readBackupFilterFlagIndex() = readStoreInt(key = KeyBackupFilterFlagIndex, defValue = 1)
 fun Context.readRestoreFilterFlagIndex() = readStoreInt(key = KeyRestoreFilterFlagIndex, defValue = 1)
-fun Context.readRestoreInstallationTypeIndex() = readStoreInt(key = KeyRestoreInstallationTypeIndex, defValue = 0)
+fun Context.readScreenOffCountDown() = readStoreInt(key = KeyScreenOffCountDown, defValue = 0)
+fun Context.readScreenOffTimeout() = readStoreInt(key = KeyScreenOffTimeout, defValue = DEFAULT_TIMEOUT)
+fun Context.readRestoreUser() = readStoreInt(key = KeyRestoreUser, defValue = -1)
 
 
 // -----------------------------------------Write-----------------------------------------
-suspend fun Context.saveBackupUserId(value: Int) = saveStoreInt(key = KeyBackupUserId, value = value)
-suspend fun Context.saveRestoreUserId(value: Int) = saveStoreInt(key = KeyRestoreUserId, value = value)
-suspend fun Context.saveBackupSortTypeIndex(value: Int) = saveStoreInt(key = KeyBackupSortTypeIndex, value = value)
-suspend fun Context.saveRestoreSortTypeIndex(value: Int) = saveStoreInt(key = KeyRestoreSortTypeIndex, value = value)
 suspend fun Context.saveBackupFilterFlagIndex(value: Int) = saveStoreInt(key = KeyBackupFilterFlagIndex, value = value)
 suspend fun Context.saveRestoreFilterFlagIndex(value: Int) = saveStoreInt(key = KeyRestoreFilterFlagIndex, value = value)
-suspend fun Context.saveRestoreInstallationTypeIndex(value: Int) = saveStoreInt(key = KeyRestoreInstallationTypeIndex, value = value)
+suspend fun Context.saveScreenOffCountDown(value: Int) = saveStoreInt(key = KeyScreenOffCountDown, value = value)
+suspend fun Context.saveScreenOffTimeout(value: Int) = saveStoreInt(key = KeyScreenOffTimeout, value = value)
+suspend fun Context.saveRestoreUser(value: Int) = saveStoreInt(key = KeyRestoreUser, value = value)

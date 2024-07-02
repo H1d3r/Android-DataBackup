@@ -3,163 +3,164 @@ package com.xayah.core.data.repository
 import android.content.Context
 import com.xayah.core.data.R
 import com.xayah.core.database.dao.MediaDao
+import com.xayah.core.datastore.ConstantUtil
 import com.xayah.core.model.CompressionType
-import com.xayah.core.model.DataState
-import com.xayah.core.model.ModeState
+import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
-import com.xayah.core.model.database.CloudEntity
+import com.xayah.core.model.SortType
 import com.xayah.core.model.database.MediaEntity
-import com.xayah.core.model.database.MediaEntityWithCount
 import com.xayah.core.model.database.MediaExtraInfo
 import com.xayah.core.model.database.MediaIndexInfo
 import com.xayah.core.model.database.MediaInfo
-import com.xayah.core.network.client.CloudClient
 import com.xayah.core.rootservice.service.RemoteRootService
-import com.xayah.core.ui.model.StringResourceToken
-import com.xayah.core.ui.model.TopBarState
-import com.xayah.core.ui.util.fromStringId
 import com.xayah.core.util.ConfigsMediaRestoreName
 import com.xayah.core.util.DateUtil
 import com.xayah.core.util.LogUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import java.text.Collator
 import javax.inject.Inject
 
 class MediaRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val rootService: RemoteRootService,
-    private val mediaDao: MediaDao,
     private val cloudRepository: CloudRepository,
+    private val mediaDao: MediaDao,
     private val pathUtil: PathUtil,
 ) {
     companion object {
-        private const val TAG = "MediaRepository"
+        private const val TAG = "PackageRepository"
     }
 
-    internal fun log(onMsg: () -> String): String = run {
+    private fun log(onMsg: () -> String): String = run {
         val msg = onMsg()
         LogUtil.log { TAG to msg }
         msg
     }
 
-    private val archivesMediumDir get() = pathUtil.getLocalBackupArchivesMediumDir()
     private val localBackupSaveDir get() = context.localBackupSaveDir()
-    fun getMedium() = mediaDao.queryFlow().distinctUntilChanged()
-    fun getMedium(opType: OpType) = mediaDao.queryFlow(opType).distinctUntilChanged()
-    val activatedCount = mediaDao.countActivatedFlow().distinctUntilChanged()
+    val backupFilesDir get() = pathUtil.getLocalBackupFilesDir()
 
-    suspend fun query(opType: OpType, preserveId: Long, cloud: String, backupDir: String) = mediaDao.query(opType, preserveId, cloud, backupDir)
-    suspend fun query(opType: OpType, name: String, cloud: String, backupDir: String) = mediaDao.query(opType, name, cloud, backupDir)
+    suspend fun clearBlocked() = mediaDao.clearBlocked()
+    suspend fun setBlocked(id: Long, blocked: Boolean) = mediaDao.setBlocked(id, blocked)
+    fun queryFlow(opType: OpType, blocked: Boolean) = mediaDao.queryFlow(opType, blocked).distinctUntilChanged()
+    fun queryFlow(opType: OpType, cloud: String, backupDir: String) = mediaDao.queryFlow(opType, cloud, backupDir).distinctUntilChanged()
+    fun queryFlow(name: String, opType: OpType, preserveId: Long) = mediaDao.queryFlow(name, opType, preserveId).distinctUntilChanged()
+    suspend fun upsert(item: MediaEntity) = mediaDao.upsert(item)
+    suspend fun upsert(items: List<MediaEntity>) = mediaDao.upsert(items)
+    suspend fun delete(id: Long) = mediaDao.delete(id)
+    suspend fun queryActivated(opType: OpType) = mediaDao.queryActivated(opType)
+    suspend fun queryActivated(opType: OpType, cloud: String, backupDir: String) = mediaDao.queryActivated(opType, cloud, backupDir)
     suspend fun query(opType: OpType, preserveId: Long, name: String, cloud: String, backupDir: String) = mediaDao.query(opType, preserveId, name, cloud, backupDir)
     suspend fun query(opType: OpType, preserveId: Long, name: String, ct: CompressionType, cloud: String, backupDir: String) = mediaDao.query(opType, preserveId, name, ct, cloud, backupDir)
-    fun queryFlow(name: String, opType: OpType, preserveId: Long) = mediaDao.queryFlow(name = name, opType = opType, preserveId = preserveId)
-    fun queryFlow(name: String, opType: OpType) = mediaDao.queryFlow(name = name, opType = opType)
-    suspend fun getMedia(opType: OpType, name: String, preserveId: Long, ct: CompressionType, cloud: String, backupDir: String) =
-        mediaDao.query(opType, preserveId, name, ct, cloud, backupDir)
+    suspend fun query(opType: OpType, name: String, cloud: String, backupDir: String) = mediaDao.query(opType, name, cloud, backupDir)
+    suspend fun query(opType: OpType, preserveId: Long, cloud: String, backupDir: String) = mediaDao.query(opType, preserveId, cloud, backupDir)
+    suspend fun query(opType: OpType, cloud: String, backupDir: String) = mediaDao.query(opType, cloud, backupDir)
+    suspend fun query(name: String, opType: OpType) = mediaDao.query(name, opType)
 
-    fun getKeyPredicate(key: String): (MediaEntityWithCount) -> Boolean = { m ->
-        m.entity.name.lowercase().contains(key.lowercase()) || m.entity.path.lowercase().contains(key.lowercase())
+    fun getArchiveDst(dstDir: String, ct: CompressionType) = "${dstDir}/${DataType.MEDIA_MEDIA.type}.${ct.suffix}"
+
+    fun getKeyPredicateNew(key: String): (MediaEntity) -> Boolean = { m ->
+        m.name.lowercase().contains(key.lowercase()) || m.path.lowercase().contains(key.lowercase())
     }
 
-    suspend fun refreshFromLocalMedia(name: String = "") {
-        refreshFromLocal(name = name)
-    }
+    private fun sortByDataSizeNew(type: SortType): Comparator<MediaEntity> = when (type) {
+        SortType.ASCENDING -> {
+            compareBy { m -> m.displayStatsBytes }
+        }
 
-    suspend fun refreshFromCloudMedia(name: String = "", cloud: String = "") {
-        runCatching { refreshFromCloud(name = name, cloud = cloud) }.onFailure(rootService.onFailure)
-    }
-
-    private suspend fun refreshFromLocal(name: String) {
-        val path = if (name.isEmpty()) archivesMediumDir else "$archivesMediumDir/$name"
-        val paths = rootService.walkFileTree(path)
-        paths.forEach {
-            val fileName = PathUtil.getFileName(it.pathString)
-            if (fileName == ConfigsMediaRestoreName) {
-                runCatching {
-                    val stored = rootService.readProtoBuf<MediaEntity>(it.pathString).also { p ->
-                        p?.extraInfo?.activated = false
-                        p?.indexInfo?.backupDir = localBackupSaveDir
-                    }
-                    if (stored != null) {
-                        query(stored.indexInfo.opType, stored.preserveId, stored.name, stored.indexInfo.compressionType, "", localBackupSaveDir).also { m ->
-                            if (m == null)
-                                mediaDao.upsert(stored)
-                        }
-                    }
-                }
-            }
+        SortType.DESCENDING -> {
+            compareByDescending { m -> m.displayStatsBytes }
         }
     }
 
-    private suspend fun refreshFromCloud(name: String, cloud: String) {
-        val refresh: suspend (CloudClient, CloudEntity) -> Unit = { client: CloudClient, entity: CloudEntity ->
-            val remote = entity.remote
-            val remoteArchivesMediumDir = pathUtil.getCloudRemoteArchivesMediumDir(remote)
-            val src = if (name.isEmpty()) remoteArchivesMediumDir else "$remoteArchivesMediumDir/$name"
-            if (client.exists(src)) {
-                val paths = client.walkFileTree(src)
-                val tmpDir = pathUtil.getCloudTmpDir()
-                paths.forEach {
-                    val fileName = PathUtil.getFileName(it.pathString)
-                    val preserveId = PathUtil.getFileName(PathUtil.getParentPath(it.pathString))
-                    if (fileName == ConfigsMediaRestoreName) {
-                        runCatching {
-                            cloudRepository.download(client = client, src = it.pathString, dstDir = tmpDir) { path ->
-                                val stored = rootService.readProtoBuf<MediaEntity>(path).also { p ->
-                                    p?.extraInfo?.activated = false
-                                    p?.indexInfo?.cloud = entity.name
-                                    p?.indexInfo?.backupDir = remote
-                                    p?.indexInfo?.preserveId = preserveId.toLongOrNull() ?: 0
-                                }
-                                if (stored != null) {
-                                    getMedia(stored.indexInfo.opType, stored.name, stored.preserveId, stored.indexInfo.compressionType, entity.name, remote).also { m ->
-                                        if (m == null)
-                                            mediaDao.upsert(stored)
-                                    }
-                                }
-                            }
-                        }
+    private fun sortByAlphabetNew(type: SortType): Comparator<MediaEntity> = Comparator { m1, m2 ->
+        if (m1 != null && m2 != null) {
+            when (type) {
+                SortType.ASCENDING -> {
+                    Collator.getInstance().let { collator ->
+                        collator.getCollationKey(m1.name).compareTo(collator.getCollationKey(m2.name))
                     }
                 }
-            }
-        }
-        if (cloud.isNotEmpty()) {
-            cloudRepository.withClient(cloud) { client, entity ->
-                refresh(client, entity)
+
+                SortType.DESCENDING -> {
+                    Collator.getInstance().let { collator ->
+                        collator.getCollationKey(m2.name).compareTo(collator.getCollationKey(m1.name))
+                    }
+                }
             }
         } else {
-            cloudRepository.withActivatedClients { clients ->
-                clients.forEach { (client, entity) ->
-                    refresh(client, entity)
-                }
-            }
+            0
         }
     }
 
-    suspend fun refresh(topBarState: MutableStateFlow<TopBarState>, modeState: ModeState, cloud: String) = run {
-        val title = topBarState.value.title
-        if (modeState != ModeState.BATCH_RESTORE) {
-            topBarState.emit(
-                TopBarState(
-                    title = StringResourceToken.fromStringId(R.string.updating),
-                    indeterminate = true
+    fun getSortComparatorNew(sortIndex: Int, sortType: SortType): Comparator<in MediaEntity> = when (sortIndex) {
+        1 -> sortByDataSizeNew(sortType)
+        else -> sortByAlphabetNew(sortType)
+    }
+
+    suspend fun refresh() = run {
+        // Add default medium for first time
+        if (mediaDao.count() == 0L) {
+            ConstantUtil.DefaultMediaList.forEach { (name, path) ->
+                upsert(
+                    MediaEntity(
+                        id = 0,
+                        indexInfo = MediaIndexInfo(
+                            opType = OpType.BACKUP,
+                            name = name,
+                            compressionType = CompressionType.TAR,
+                            preserveId = 0,
+                            cloud = "",
+                            backupDir = ""
+                        ),
+                        mediaInfo = MediaInfo(
+                            path = path,
+                            dataBytes = 0,
+                            displayBytes = 0,
+                        ),
+                        extraInfo = MediaExtraInfo(
+                            labels = listOf(),
+                            blocked = false,
+                            activated = true,
+                            existed = true,
+                        ),
+                    )
                 )
-            )
-            val medium = query(opType = OpType.BACKUP, preserveId = 0, "", "")
-            medium.forEach { m ->
-                mediaDao.upsert(m.copy(mediaInfo = m.mediaInfo.copy(displayBytes = rootService.calculateSize(m.path))))
             }
         }
-        topBarState.emit(TopBarState(progress = 1f, title = StringResourceToken.fromStringId(R.string.updating), indeterminate = true))
-        if (cloud.isEmpty()) {
-            refreshFromLocalMedia()
-        } else {
-            refreshFromCloudMedia(cloud = cloud)
+
+        val medium = mediaDao.query(opType = OpType.BACKUP, blocked = false)
+        medium.forEach { m ->
+            val size = rootService.calculateSize(m.path)
+            val existed = rootService.exists(m.path)
+            mediaDao.upsert(m.copy(mediaInfo = m.mediaInfo.copy(displayBytes = size), extraInfo = m.extraInfo.copy(existed = existed, activated = m.extraInfo.activated && existed)))
         }
-        topBarState.emit(TopBarState(progress = 1f, title = title, indeterminate = false))
+    }
+
+    suspend fun updateLocalMediaSize(name: String, opType: OpType, preserveId: Long) {
+        query(opType = opType, preserveId = preserveId, name = name, cloud = "", backupDir = "").also {
+            if (it != null) {
+                it.extraInfo.existed = rootService.exists(it.path)
+                if (it.extraInfo.existed) {
+                    it.mediaInfo.displayBytes = rootService.calculateSize(it.path)
+                }
+                upsert(it)
+            }
+        }
+    }
+
+    private suspend fun calculateLocalArchiveSize(m: MediaEntity) = rootService.calculateSize(
+        getArchiveDst("${backupFilesDir}/${m.archivesRelativeDir}", m.indexInfo.compressionType)
+    )
+
+    suspend fun updateLocalMediaArchivesSize(name: String, opType: OpType) {
+        query(opType, name, "", localBackupSaveDir).onEach {
+            it.mediaInfo.displayBytes = calculateLocalArchiveSize(it)
+            upsert(it)
+        }
     }
 
     private fun renameDuplicateMedia(name: String): String {
@@ -207,13 +208,14 @@ class MediaRepository @Inject constructor(
                         ),
                         mediaInfo = MediaInfo(
                             path = pathString,
-                            dataState = DataState.Selected,
                             dataBytes = 0,
                             displayBytes = 0,
                         ),
                         extraInfo = MediaExtraInfo(
                             labels = listOf(),
-                            activated = false
+                            activated = true,
+                            blocked = false,
+                            existed = true
                         ),
                     )
                 )
@@ -223,119 +225,124 @@ class MediaRepository @Inject constructor(
         return "${context.getString(R.string.succeed)}: ${customMediaList.size}, ${context.getString(R.string.failed)}: $failedCount"
     }
 
-    suspend fun upsert(item: MediaEntity) = mediaDao.upsert(item)
-    suspend fun upsert(items: List<MediaEntity>) = mediaDao.upsert(items)
-    suspend fun clearActivated() = mediaDao.clearActivated()
-
-    fun getArchiveDst(dstDir: String, ct: CompressionType) = "${dstDir}/media.${ct.suffix}"
-
-    suspend fun deleteLocalArchive(m: MediaEntity) = run {
-        if (rootService.deleteRecursively("${archivesMediumDir}/${m.archivesPreserveRelativeDir}")) mediaDao.delete(m)
-    }
-
-    suspend fun deleteRemoteArchive(cloud: String, m: MediaEntity) = runCatching {
-        cloudRepository.withClient(cloud) { client, entity ->
-            val remote = entity.remote
-            val remoteArchivesMediumDir = pathUtil.getCloudRemoteArchivesMediumDir(remote)
-            val src = "${remoteArchivesMediumDir}/${m.archivesPreserveRelativeDir}"
-            client.deleteRecursively(src)
-        }
-    }.onSuccess { mediaDao.delete(m) }
-
-    private suspend fun calculateArchiveSize(m: MediaEntity) = rootService.calculateSize(
-        getArchiveDst("${archivesMediumDir}/${m.archivesPreserveRelativeDir}", m.indexInfo.compressionType)
-    )
-
-    private suspend fun calculateDataSize(m: MediaEntity) = run {
-        val src = m.path
-        if (rootService.exists(src)) rootService.calculateSize(src)
-        else 0
-    }
-
-    suspend fun updateLocalMediaDataSize(opType: OpType, preserveId: Long, name: String) {
-        query(opType, preserveId, name, "", "").also {
-            if (it != null) {
-                it.mediaInfo.displayBytes = calculateDataSize(it)
-                upsert(it)
-            }
-        }
-    }
-
-    suspend fun updateLocalMediaArchivesSize(opType: OpType, name: String) {
-        query(opType, name, "", "").onEach {
-            it.mediaInfo.displayBytes = calculateArchiveSize(it)
-            upsert(it)
-        }
-    }
-
-    suspend fun updateCloudMediaArchivesSize(opType: OpType, name: String) {
-        cloudRepository.withActivatedClients { clients ->
-            clients.forEach { (client, entity) ->
-                updateCloudMediaArchivesSize(opType, name, client, entity)
-            }
-        }
-    }
-
-    private fun calculateCloudArchiveSize(client: CloudClient, m: MediaEntity, archivesMediumDir: String) = run {
-        val src = getArchiveDst("${archivesMediumDir}/${m.archivesPreserveRelativeDir}", m.indexInfo.compressionType)
-        if (client.exists(src)) client.size(src)
-        else 0
-    }
-
-    suspend fun updateCloudMediaArchivesSize(opType: OpType, name: String, client: CloudClient, entity: CloudEntity) {
-        val remote = entity.remote
-        val remoteArchivesMediumDir = pathUtil.getCloudRemoteArchivesMediumDir(remote)
-        query(opType, name, entity.name, entity.remote).onEach {
-            runCatching { it.mediaInfo.displayBytes = calculateCloudArchiveSize(client, it, remoteArchivesMediumDir) }.onFailure(rootService.onFailure)
-            upsert(it)
-        }
-    }
-
-    suspend fun preserve(m: MediaEntity) {
-        val parent = archivesMediumDir
-        val preserveId = DateUtil.getTimestamp()
-        val isSuccess = if (m.indexInfo.cloud.isEmpty()) {
-            val src = "${parent}/${m.archivesPreserveRelativeDir}"
-            val dst = "${parent}/${m.archivesRelativeDir}/${preserveId}"
-            rootService.renameTo(src, dst)
-        } else {
-            runCatching {
-                cloudRepository.withClient(m.indexInfo.cloud) { client, entity ->
-                    val remote = entity.remote
-                    val remoteArchivesMediumsDir = pathUtil.getCloudRemoteArchivesMediumDir(remote)
-                    val src = "${remoteArchivesMediumsDir}/${m.archivesPreserveRelativeDir}"
-                    val dst = "${remoteArchivesMediumsDir}/${m.archivesRelativeDir}/${preserveId}"
-                    client.renameTo(src, dst)
-                }
-            }.onFailure(rootService.onFailure).isSuccess
-        }
-
-        if (isSuccess) upsert(m.copy(indexInfo = m.indexInfo.copy(preserveId = preserveId)))
-    }
-
     suspend fun delete(m: MediaEntity) {
+        val filesDir = pathUtil.getLocalBackupFilesDir()
         val isSuccess = if (m.indexInfo.cloud.isEmpty()) {
-            val src = "${archivesMediumDir}/${m.archivesPreserveRelativeDir}"
+            val src = "${filesDir}/${m.archivesRelativeDir}"
             rootService.deleteRecursively(src)
         } else {
             runCatching {
                 cloudRepository.withClient(m.indexInfo.cloud) { client, entity ->
                     val remote = entity.remote
-                    val remoteArchivesMediumDir = pathUtil.getCloudRemoteArchivesMediumDir(remote)
-                    val src = "${remoteArchivesMediumDir}/${m.archivesPreserveRelativeDir}"
-                    client.deleteRecursively(src)
+                    val remoteArchivesMediumDir = pathUtil.getCloudRemoteFilesDir(remote)
+                    val src = "${remoteArchivesMediumDir}/${m.archivesRelativeDir}"
+                    if (client.exists(src)) client.deleteRecursively(src)
                 }
             }.onFailure(rootService.onFailure).isSuccess
         }
 
-        if (isSuccess) mediaDao.delete(m)
+        if (isSuccess) mediaDao.delete(m.id)
     }
 
-    fun getLocationPredicate(index: Int, accountList: List<CloudEntity>): (MediaEntityWithCount) -> Boolean = { m ->
-        when (index) {
-            0 -> m.entity.indexInfo.cloud.isEmpty()
-            else -> m.entity.indexInfo.cloud == accountList.getOrNull(index - 1)?.name
+    suspend fun preserve(m: MediaEntity) {
+        val mediaEntity = m.copy(id = 0, indexInfo = m.indexInfo.copy(preserveId = DateUtil.getTimestamp()))
+        val filesDir = pathUtil.getLocalBackupFilesDir()
+        val isSuccess = if (mediaEntity.indexInfo.cloud.isEmpty()) {
+            val src = "${filesDir}/${m.archivesRelativeDir}"
+            val dst = "${filesDir}/${mediaEntity.archivesRelativeDir}"
+            rootService.writeJson(data = mediaEntity, dst = PathUtil.getMediaRestoreConfigDst(src))
+            rootService.renameTo(src, dst)
+        } else {
+            runCatching {
+                cloudRepository.withClient(mediaEntity.indexInfo.cloud) { client, entity ->
+                    val remote = entity.remote
+                    val remoteArchivesMediumDir = pathUtil.getCloudRemoteFilesDir(remote)
+                    val src = "${remoteArchivesMediumDir}/${m.archivesRelativeDir}"
+                    val dst = "${remoteArchivesMediumDir}/${mediaEntity.archivesRelativeDir}"
+                    val tmpDir = pathUtil.getCloudTmpDir()
+                    val tmpJsonPath = PathUtil.getMediaRestoreConfigDst(tmpDir)
+                    rootService.writeJson(data = mediaEntity, dst = tmpJsonPath)
+                    cloudRepository.upload(client = client, src = tmpJsonPath, dstDir = src)
+                    rootService.deleteRecursively(tmpDir)
+                    client.renameTo(src, dst)
+                }
+            }.onFailure(rootService.onFailure).isSuccess
+        }
+        if (isSuccess) {
+            mediaDao.delete(m.id)
+            upsert(mediaEntity)
         }
     }
 
+    suspend fun loadMediumFromLocal() {
+        val path = backupFilesDir
+        val paths = rootService.walkFileTree(path)
+        paths.forEach {
+            val fileName = PathUtil.getFileName(it.pathString)
+            if (fileName == ConfigsMediaRestoreName) {
+                runCatching {
+                    val stored = rootService.readJson<MediaEntity>(it.pathString).also { p ->
+                        p?.id = 0
+                        p?.extraInfo?.existed = true
+                        p?.extraInfo?.activated = false
+                        p?.indexInfo?.cloud = ""
+                        p?.indexInfo?.backupDir = localBackupSaveDir
+                    }
+                    if (stored != null) {
+                        query(
+                            name = stored.name,
+                            opType = stored.indexInfo.opType,
+                            preserveId = stored.preserveId,
+                            ct = stored.indexInfo.compressionType,
+                            cloud = stored.indexInfo.cloud,
+                            backupDir = localBackupSaveDir
+                        ).also { m ->
+                            if (m == null)
+                                mediaDao.upsert(stored)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    suspend fun loadMediumFromCloud(cloud: String) = runCatching {
+        cloudRepository.withClient(cloud) { client, entity ->
+            val remote = entity.remote
+            val src = pathUtil.getCloudRemoteFilesDir(remote)
+            if (client.exists(src)) {
+                val paths = client.walkFileTree(src)
+                val tmpDir = pathUtil.getCloudTmpDir()
+                paths.forEach {
+                    val fileName = PathUtil.getFileName(it.pathString)
+                    if (fileName == ConfigsMediaRestoreName) {
+                        runCatching {
+                            cloudRepository.download(client = client, src = it.pathString, dstDir = tmpDir) { path ->
+                                val stored = rootService.readJson<MediaEntity>(path).also { p ->
+                                    p?.id = 0
+                                    p?.extraInfo?.existed = true
+                                    p?.extraInfo?.activated = false
+                                    p?.indexInfo?.cloud = entity.name
+                                    p?.indexInfo?.backupDir = remote
+                                }
+                                if (stored != null) {
+                                    query(
+                                        name = stored.name,
+                                        opType = stored.indexInfo.opType,
+                                        preserveId = stored.preserveId,
+                                        ct = stored.indexInfo.compressionType,
+                                        cloud = entity.name,
+                                        backupDir = remote
+                                    ).also { m ->
+                                        if (m == null)
+                                            mediaDao.upsert(stored)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }.onFailure(rootService.onFailure)
 }

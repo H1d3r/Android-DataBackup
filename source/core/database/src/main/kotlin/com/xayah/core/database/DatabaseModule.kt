@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.room.Room
 import com.xayah.core.database.dao.CloudDao
 import com.xayah.core.database.dao.DirectoryDao
-import com.xayah.core.database.dao.LogcatDao
 import com.xayah.core.database.dao.MediaDao
 import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.database.dao.TaskDao
@@ -44,8 +43,4 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideTaskDao(database: AppDatabase): TaskDao = database.taskDao()
-
-    @Provides
-    @Singleton
-    fun provideLogcatDao(database: AppDatabase): LogcatDao = database.logcatDao()
 }

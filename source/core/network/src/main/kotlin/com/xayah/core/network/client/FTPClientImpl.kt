@@ -5,6 +5,8 @@ import com.xayah.core.common.util.toPathString
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.FTPExtra
 import com.xayah.core.network.R
+import com.xayah.core.network.io.CountingInputStreamImpl
+import com.xayah.core.network.io.CountingOutputStreamImpl
 import com.xayah.core.network.util.getExtraEntity
 import com.xayah.core.rootservice.parcelables.PathParcelable
 import com.xayah.core.util.GsonUtil
@@ -85,27 +87,34 @@ class FTPClientImpl(private val entity: CloudEntity, private val extra: FTPExtra
         if (client.rename(src, dst).not()) throw IOException("Failed to rename file from $src to $dst.")
     }
 
-    override fun upload(src: String, dst: String) = withClient { client ->
+    override fun upload(src: String, dst: String, onUploading: (read: Long, total: Long) -> Unit) = withClient { client ->
         val name = Paths.get(src).fileName
         val dstPath = "$dst/$name"
         log { "upload: $src to $dstPath" }
         val srcFile = File(src)
+        val srcFileSize = srcFile.length()
         val srcInputStream = FileInputStream(srcFile)
-        client.storeFile(dstPath, srcInputStream)
+        val countingStream = CountingInputStreamImpl(srcInputStream, srcFileSize) { read, total -> onUploading(read, total) }
+        client.storeFile(dstPath, countingStream)
         srcInputStream.close()
+        countingStream.close()
+        onUploading(countingStream.byteCount, countingStream.byteCount)
     }
 
-    override fun download(src: String, dst: String) = withClient { client ->
+    override fun download(src: String, dst: String, onDownloading: (written: Long, total: Long) -> Unit) = withClient { client ->
         val name = Paths.get(src).fileName
         val dstPath = "$dst/$name"
         log { "download: $src to $dstPath" }
         val dstFile = File(dstPath)
         val srcInputStream: InputStream = client.retrieveFileStream(src)
         val dstOutPutStream: OutputStream = dstFile.outputStream()
-        srcInputStream.copyTo(dstOutPutStream)
+        val countingStream = CountingOutputStreamImpl(dstOutPutStream, -1) { written, total -> onDownloading(written, total) }
+        srcInputStream.copyTo(countingStream)
+        client.completePendingCommand()
         srcInputStream.close()
         dstOutPutStream.close()
-        client.completePendingCommand()
+        countingStream.close()
+        onDownloading(countingStream.byteCount, countingStream.byteCount)
     }
 
     override fun deleteFile(src: String) = withClient { client ->
@@ -212,11 +221,11 @@ class FTPClientImpl(private val entity: CloudEntity, private val extra: FTPExtra
         withClient { client ->
             val srcFile = listFile(src)
             if (srcFile.isDirectory.not()) {
-                size += client.getSize(src).toLong()
+                size += client.getSize(src)?.toLongOrNull() ?: 0
             } else {
                 val files = listFiles(src)
                 for (i in files.files) {
-                    size += client.getSize("${src}/${i.name}").toLong()
+                    size += client.getSize("${src}/${i.name}")?.toLongOrNull() ?: 0
                 }
                 for (i in files.directories) {
                     size("${src}/${i.name}")

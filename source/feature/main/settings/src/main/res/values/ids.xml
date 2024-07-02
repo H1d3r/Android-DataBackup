@@ -14,9 +14,6 @@
     <item name="backup" type="string" />
     <item name="restore" type="string" />
     <item name="version" type="string" />
-    <item name="feature" type="string" />
-    <item name="abi" type="string" />
-    <item name="architecture" type="string" />
     <item name="check_keystore" type="string" />
     <item name="check_keystore_desc" type="string" />
     <item name="load_system_apps" type="string" />
@@ -35,8 +32,34 @@
     <item name="theme_dark" type="string" />
     <item name="theme_dark_desc" type="string" />
     <item name="dark_theme" type="string" />
+    <item name="blacklist" type="string" />
+    <item name="blacklist_desc" type="string" />
+    <item name="apps" type="string" />
+    <item name="prompt" type="string" />
+    <item name="confirm_remove_from_blacklist" type="string" />
+    <item name="it_is_empty" type="string" />
+    <item name="advanced" type="string" />
+    <item name="auto_screen_off" type="string" />
+    <item name="auto_screen_off_desc" type="string" />
+    <item name="configurations" type="string" />
+    <item name="configurations_desc" type="string" />
+    <item name="files" type="string" />
+    <item name="about" type="string" />
+    <item name="about_app" type="string" />
+    <item name="app_name" type="string" />
+    <item name="no_browser" type="string" />
+    <item name="donate" type="string" />
+    <item name="buymeacoffee" type="string" />
+    <item name="afdian" type="string" />
+    <item name="github" type="string" />
+    <item name="contact" type="string" />
+    <item name="docs" type="string" />
+    <item name="translators" type="string" />
+    <item name="translators_desc" type="string" />
+    <item name="unknown" type="string" />
 
     <item name="ic_rounded_acute" type="drawable" />
     <item name="ic_rounded_history" type="drawable" />
     <item name="ic_rounded_folder_open" type="drawable" />
+    <item name="ic_rounded_emoticon" type="drawable" />
 </resources>
